@@ -7,6 +7,7 @@ import boto3
 from flask import Flask, render_template, request, redirect, url_for, flash, session, send_file, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
+from datetime import datetime, timezone, timedelta
 
 app = Flask(__name__)
 app.secret_key = 'your-secret-key'
@@ -47,17 +48,47 @@ class BackupSettings(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     retention_days = db.Column(db.Integer, default=7)
     backup_frequency = db.Column(db.String(50), default="0 2 * * *")  # 2AM daily
+    instance_id = db.Column(db.String(64), nullable=False)
+    instance_name = db.Column(db.String(128))
+    ami_id = db.Column(db.String(64))
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    status = db.Column(db.String(32), default='Pending')  # 'Pending', 'Success', 'Failed'
+    region = db.Column(db.String(32))
+    log_url = db.Column(db.String(256))
+    
+class Backup(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    retention_days = db.Column(db.Integer, default=7)
+    backup_frequency = db.Column(db.String(50), default="0 2 * * *")  # 2AM daily
+    instance_id = db.Column(db.String(64), nullable=False)
+    instance_name = db.Column(db.String(128))
+    ami_id = db.Column(db.String(64))
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    status = db.Column(db.String(32), default='Pending')  # 'Pending', 'Success', 'Failed'
+    region = db.Column(db.String(32))
+    log_url = db.Column(db.String(256))
 
 two_factor_secret = db.Column(db.String(32), nullable=True)
 
 ############################################################ Routes ############################################################
+
+#@app.route('/')
+#def dashboard():
+#    if 'username' not in session:
+#        return redirect(url_for('login'))
+#    user = User.query.filter_by(username=session['username']).first()
+#    return render_template('dashboard.html', user=user)
 
 @app.route('/')
 def dashboard():
     if 'username' not in session:
         return redirect(url_for('login'))
     user = User.query.filter_by(username=session['username']).first()
-    return render_template('dashboard.html', user=user)
+    # Query all backups, most recent first
+    backups = Backup.query.order_by(Backup.timestamp.desc()).all()
+    last_backup = backups[0] if backups else None
+    return render_template('dashboard.html', user=user, backups=backups, last_backup=last_backup)
+
 
 #@app.route('/login', methods=['GET', 'POST'])
 #def login():
@@ -343,9 +374,7 @@ def add_instance():
         db.session.add(inst)
         db.session.commit()
         flash('Instance added!', 'success')
-        #return redirect(url_for('add_instance'))
-    return render_template('aws_instances.html')
-
+        return redirect('/aws-instances')
 
 @app.route('/delete-instance/<instance_id>', methods=['POST'])
 def delete_instance(instance_id):
@@ -435,8 +464,9 @@ def update_instance(instance_id):
     inst.retention_days = retention_days
     db.session.commit()
     flash('Instance updated!', 'success')
-    #return redirect(url_for('aws_instance.html'))
-    return render_template('aws_instances.html')
+    return redirect('/aws-instances')
+    #return redirect(url_for('aws-instances'))
+    #return render_template('aws_instances.html')
 #
 ## Delete an instance
 #@app.route('/delete-instance/<instance_id>', methods=['POST'])
@@ -447,12 +477,89 @@ def update_instance(instance_id):
 #    flash('Instance deleted!', 'success')
 #    return redirect(url_for('list_instances'))
 
+############################################################ AWS AMi Creaters ############################################################
+
 @app.route('/start-backup/<instance_id>', methods=['POST'])
 def start_backup(instance_id):
-    # TODO: Add your backup logic here
-    # For example: backup_instance(instance_id)
-    flash(f"Manual backup started for instance {instance_id}", "success")
+    inst = Instance.query.filter_by(instance_id=instance_id).first_or_404()
+    retention_days = int(inst.retention_days) if hasattr(inst, 'retention_days') else 7
+    aws_region = inst.region
+    aws_access_key = inst.access_key
+    aws_secret_key = inst.secret_key
+
+    try:
+        ec2 = boto3.client(
+            'ec2',
+            region_name=aws_region,
+            aws_access_key_id=aws_access_key,
+            aws_secret_access_key=aws_secret_key
+        )
+
+        # Get instance name
+        tags_response = ec2.describe_tags(
+            Filters=[
+                {'Name': 'resource-id', 'Values': [instance_id]},
+                {'Name': 'key', 'Values': ['Name']}
+            ]
+        )
+        instance_name = None
+        for tag in tags_response.get('Tags', []):
+            if tag['Key'] == 'Name':
+                instance_name = tag['Value']
+                break
+
+        if not instance_name:
+            flash(f"Could not find 'Name' tag for {instance_id}.", "danger")
+            return redirect(url_for('manage_instances'))
+
+        # Create a pending backup record
+        backup = Backup(
+            instance_id=instance_id,
+            instance_name=instance_name,
+            timestamp=datetime.utcnow(),
+            status='Pending',
+            region=aws_region,
+            retention_days=retention_days
+        )
+        db.session.add(backup)
+        db.session.commit()
+
+        # Create AMI
+        timestamp_str = datetime.now().strftime("%Y_%m_%d_%I_%M_%p")
+        ami_name = f"{instance_name}_{timestamp_str}"
+        ami_response = ec2.create_image(
+            InstanceId=instance_id,
+            Name=ami_name,
+            NoReboot=True
+        )
+        ami_id = ami_response['ImageId']
+
+        # Tag the AMI
+        ec2.create_tags(
+            Resources=[ami_id],
+            Tags=[
+                {'Key': 'CreatedBy', 'Value': 'AutoBackup'},
+                {'Key': 'InstanceName', 'Value': instance_name}
+            ]
+        )
+
+        # Update backup record to Success and store ami_id
+        backup.status = 'Success'
+        backup.ami_id = ami_id
+        db.session.commit()
+
+        # (Cleanup code here...)
+
+        flash(f"Manual backup started for instance {instance_id} (AMI: {ami_id})", "success")
+    except Exception as e:
+        # If backup record exists, update status to Failed
+        if 'backup' in locals():
+            backup.status = 'Failed'
+            db.session.commit()
+        flash(f"Backup failed: {str(e)}", "danger")
+
     return redirect(url_for('manage_instances'))
+
 
 ############################################################ AWS Checker ############################################################
 @app.route('/check-instance', methods=['POST'])
@@ -512,7 +619,8 @@ def clear_notifications():
 def backup_settings():
     config = BackupSettings.query.first()
     if not config:
-        config = BackupSettings()
+        # Set a default instance_id (replace with your actual logic)
+        config = BackupSettings(instance_id="default-instance-id")
         db.session.add(config)
         db.session.commit()
     return render_template('backup_settings.html', config=config)
@@ -526,7 +634,6 @@ def update_backup_settings():
         db.session.commit()
         flash("Backup settings updated", "success")
     return redirect(url_for('backup_settings'))
-
 
 ############################################################ Run ############################################################
 

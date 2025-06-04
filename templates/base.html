@@ -11,7 +11,43 @@
   <div class="centered-content">
     <div class="container">
       <header>
-        <h1>🚀 Ami Vault Dashboard</h1>
+<!-- Place this wherever you want the logo and title to show -->
+<!-- Place this wherever you want the logo and title to show -->
+<div class="logo-header" style="display: flex; align-items: center; gap: 1rem;">
+  <a href="/" style="display: flex; align-items: center; text-decoration: none;">
+    <div class="logo-container" aria-label="AMI Snapshot Logo" style="transition: transform 0.2s;">
+      <svg width="60" height="50" viewBox="10 20 42 40" fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+        aria-label="AMI Snapshot Logo" role="img"
+        style="filter: drop-shadow(0 2px 6px rgba(37,99,235,0.15));">
+        <!-- AWS Hexagon Outline -->
+        <polygon points="32 2 58 16 58 48 32 62 6 48 6 16"
+          stroke="#FF9900" stroke-width="2" fill="none"/>
+        <!-- Cloud Shape with gradient -->
+        <defs>
+          <linearGradient id="cloudGradient" x1="20" y1="38" x2="45" y2="52" gradientUnits="userSpaceOnUse">
+            <stop stop-color="#60a5fa"/>
+            <stop offset="1" stop-color="#2563EB"/>
+          </linearGradient>
+        </defs>
+        <path fill="url(#cloudGradient)" d="M45 38a9 9 0 0 0-18 0H20a7 7 0 0 0 0 14h25a7 7 0 0 0 0-14h-0z"/>
+        <!-- Camera Shutter (snapshot) -->
+        <circle cx="32" cy="38" r="6" fill="#fff" stroke="#60a5fa" stroke-width="2"/>
+        <path d="M32 32v12M26 38h12"
+          stroke="#2563EB" stroke-width="2" stroke-linecap="round"/>
+        <!-- Small circle center -->
+        <circle cx="32" cy="38" r="2.2" fill="#22c55e" stroke="#2563EB" stroke-width="1"/>
+      </svg>
+    </div>
+    <h1> Ami Vault</h1>
+    <!--<span style="margin-left: 0.5rem; font-size: 1.4rem; font-weight: 700; color: hsl(0, 0%, 100%)0%, 100%); letter-spacing: 1px;">
+      Ami Vault</span>
+    </span>-->
+  </a>
+</div>
+
+
+        <!--<h1>Ami Vault Dashboard</h1>-->
         <nav>
           <a href="{{ url_for('dashboard') }}">Home</a>
           <a href="{{ url_for('manage_instances') }}">AWS Instances</a>

@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="content">
+  <!-- Summary Stats Section -->
   <div class="section stats">
     <div class="stat-card">
       <h3>{{ last_backup.ami_id if last_backup else 'N/A' }}</h3>
@@ -14,38 +15,78 @@
       <h3>{{ backups|length }}</h3>
       <p>Total Backups</p>
     </div>
+    <div class="stat-card">
+      <h3>
+        {{ backups|selectattr('status', 'equalto', 'Success')|list|length }}
+      </h3>
+      <p>Successful Backups</p>
+    </div>
+    <div class="stat-card">
+      <h3>
+        {{ backups|selectattr('status', 'equalto', 'Failed')|list|length }}
+      </h3>
+      <p>Failed Backups</p>
+    </div>
+    <div class="stat-card">
+      <h3>
+        {{ backups|selectattr('status', 'equalto', 'Pending')|list|length }}
+      </h3>
+      <p>Pending Backups</p>
+    </div>
   </div>
 
+  <!-- Backup Records Table -->
   <div class="section">
     <h2>Backup Records</h2>
     {% if backups %}
-    <table>
-      <thead>
-        <tr>
-          <th>Instance ID</th>
-          <th>Instance Name</th>
-          <th>AMI ID</th>
-          <th>Backup Timestamp</th>
-          <th>Status</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for b in backups %}
-        <tr>
-          <td>{{ b.instance_id }}</td>
-          <td>{{ b.instance_name }}</td>
-          <td>{{ b.ami_id }}</td>
-          <td>{{ b.timestamp }}</td>
-          <td>
-            <span class="status
-              {% if b.status == 'Success' %}success{% elif b.status == 'Failed' %}failed{% else %}pending{% endif %}">
-              {{ b.status }}
-            </span>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    <div class="table-responsive">
+      <table class="backups-table">
+        <thead>
+          <tr>
+            <th>Instance ID</th>
+            <th>Instance Name</th>
+            <th>AMI ID</th>
+            <th>Backup Timestamp</th>
+            <th>Status</th>
+            <th>Region</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for b in backups %}
+          <tr>
+            <td>{{ b.instance_id }}</td>
+            <td>{{ b.instance_name or 'N/A' }}</td>
+            <td>
+              {% if b.ami_id %}
+                <a href="https://console.aws.amazon.com/ec2/v2/home?region={{ b.region }}#ImageDetails:imageId={{ b.ami_id }}" target="_blank">{{ b.ami_id }}</a>
+              {% else %}
+                N/A
+              {% endif %}
+            </td>
+            <td>{{ b.timestamp or 'N/A' }}</td>
+            <td>
+              <span class="status-badge
+                {% if b.status == 'Success' %}status-success
+                {% elif b.status == 'Failed' %}status-failed
+                {% else %}status-pending{% endif %}">
+                {{ b.status }}
+              </span>
+            </td>
+            <td>{{ b.region or 'N/A' }}</td>
+            <td>
+              {% if b.ami_id %}
+                <a href="https://console.aws.amazon.com/ec2/v2/home?region={{ b.region }}#ImageDetails:imageId={{ b.ami_id }}" target="_blank" class="action-btn">View AMI</a>
+              {% endif %}
+              {% if b.log_url %}
+                <a href="{{ b.log_url }}" class="action-btn" download>Download Log</a>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
     {% else %}
       <p>No backup records found.</p>
     {% endif %}

@@ -300,7 +300,12 @@ button:hover {
     flex-shrink: 0;        /* Prevent shrinking in flex layout */
 }
 
-
 .small-check-btn:hover {
     background-color: #2980b9;
+}
+
+.logo-container svg {
+  max-width: 100%;
+  height: auto;
+  display: block;
 }
