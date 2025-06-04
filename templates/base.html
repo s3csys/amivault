@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Ami Vault</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+
+</head>
+<body>
+  <div class="centered-content">
+    <div class="container">
+      <header>
+        <h1>🚀 Ami Vault Dashboard</h1>
+        <nav>
+          <a href="{{ url_for('dashboard') }}">Home</a>
+          <a href="{{ url_for('manage_instances') }}">AWS Instances</a>
+          <a href="{{ url_for('backup_settings') }}">Backup Settings</a>
+          <a href="{{ url_for('user_settings') }}">User Settings</a>
+          <a href="{{ url_for('logout') }}">Logout</a>
+          <a href=""></a>
+        </nav>
+      </header>
+
+      <main>
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            <ul class="flashes">
+              {% for category, message in messages %}
+                <li class="flash-{{ category }}">{{ message }}</li>
+              {% endfor %}
+            </ul>
+          {% endif %}
+        {% endwith %}
+        {% block content %}{% endblock %}
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            <div id="flash-popup-container" style="position: fixed; top: 30px; right: 30px; z-index: 9999;">
+              {% for category, message in messages %}
+                <div class="alert alert-{{ 'success' if category == 'success' else 'danger' }} flash-popup" role="alert"
+                     style="min-width: 250px; box-shadow: 0 2px 12px rgba(0,0,0,0.15); margin-bottom: 10px;">
+                  {{ message }}
+                </div>
+              {% endfor %}
+            </div>
+          {% endif %}
+        {% endwith %}
+
+      </main>
+
+      <footer>
+        <p>&copy; 2025 AMI Backup System</p>
+      </footer>
+    </div>
+  </div>
+
+  <script>
+  // Auto-hide popups after 2.5 seconds
+  setTimeout(function() {
+    var popups = document.querySelectorAll('.flash-popup');
+    popups.forEach(function(popup) {
+      popup.style.transition = "opacity 0.5s";
+      popup.style.opacity = 0;
+      setTimeout(function() {
+        if (popup.parentNode) {
+          popup.parentNode.removeChild(popup);
+        }
+      }, 500);
+    });
+  }, 2500);
+  </script>
+
+<script>
+function toggleNotifDropdown() {
+  var dropdown = document.getElementById('notifDropdown');
+  dropdown.style.display = dropdown.style.display === 'block' ? 'none' : 'block';
+}
+// Optional: Hide dropdown when clicking outside
+document.addEventListener('click', function(event) {
+  var notifBtn = document.getElementById('notifBtn');
+  var notifDropdown = document.getElementById('notifDropdown');
+  if (notifDropdown && !notifBtn.contains(event.target) && !notifDropdown.contains(event.target)) {
+    notifDropdown.style.display = 'none';
+  }
+});
+</script>
+
+
+</body>
+</html>

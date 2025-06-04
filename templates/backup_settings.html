@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="content" style="max-width: 500px; margin: 0 auto;">
+  <h2 style="text-align:center; color:#4f8cff; margin-bottom:2rem;">Backup Settings</h2>
+  <form method="POST" action="{{ url_for('update_backup_settings') }}" class="instance-form">
+    <label>Retention Days</label>
+    <input type="number" name="retention_days" value="{{ config.retention_days }}" min="1" required>
+    <label>Backup Frequency <span style="font-weight:400; color:#888;">(Cron Format)</span></label>
+    <input type="text" name="backup_frequency" value="{{ config.backup_frequency }}" required placeholder="e.g. 0 2 * * *">
+    <button type="submit">Update Settings</button>
+  </form>
+</div>
+{% endblock %}

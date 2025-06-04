@@ -1,0 +1,18 @@
+<div class="section">
+  <h2>Add AWS Instance & Credentials</h2>
+  <form method="POST" action="{{ url_for('add_instance') }}" class="instance-form">
+    <label for="instance_id">Instance ID</label>
+    <input type="text" id="instance_id" name="instance_id" placeholder="i-1234567890abcdef0" required />
+
+    <label for="instance_name">Instance Name</label>
+    <input type="text" id="instance_name" name="instance_name" placeholder="My EC2 Instance" required />
+
+    <label for="access_key">AWS Access Key</label>
+    <input type="text" id="access_key" name="access_key" placeholder="AKIA..." required />
+
+    <label for="secret_key">AWS Secret Key</label>
+    <input type="password" id="secret_key" name="secret_key" placeholder="********" required />
+
+    <button type="submit">Add Instance</button>
+  </form>
+</div>
