@@ -49,7 +49,7 @@ class Instance(db.Model):
 class BackupSettings(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     retention_days = db.Column(db.Integer, default=7)
-    backup_frequency = db.Column(db.String(50), default="0 2 * * *")  # 2AM daily
+    backup_frequency = db.Column(db.String(64), default="5")
     instance_id = db.Column(db.String(64), nullable=False)
     instance_name = db.Column(db.String(128))
     ami_id = db.Column(db.String(64))
@@ -61,7 +61,8 @@ class BackupSettings(db.Model):
 class Backup(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     retention_days = db.Column(db.Integer, default=7)
-    backup_frequency = db.Column(db.String(50), default="0 2 * * *")  # 2AM daily
+    #backup_frequency = db.Column(db.String(50), default="0 2 * * *")  # 2AM daily
+    backup_frequency = db.Column(db.String(64), default="5")
     instance_id = db.Column(db.String(64), nullable=False)
     instance_name = db.Column(db.String(128))
     ami_id = db.Column(db.String(64))
@@ -567,7 +568,8 @@ def start_backup(instance_id):
     return redirect(url_for('manage_instances'))
 
 
-
+def get_effective_setting(instance_value, global_value):
+    return instance_value if instance_value not in [None, '', 0] else global_value
 
 # Scheduler config
 class Config:
@@ -576,21 +578,60 @@ class Config:
 app.config.from_object(Config())
 scheduler = APScheduler()
 scheduler.init_app(app)
-scheduler.start()
+
+def get_effective_setting(instance_value, global_value):
+    return instance_value if instance_value not in [None, '', 0] else global_value
+
+def cleanup_old_amis(ec2, instance_name, retention_days):
+    """Delete AMIs and snapshots for this instance_name older than retention_days."""
+    images_response = ec2.describe_images(
+        Owners=['self'],
+        Filters=[
+            {'Name': 'tag:CreatedBy', 'Values': ['AutoBackup']},
+            {'Name': 'tag:InstanceName', 'Values': [instance_name]}
+        ]
+    )
+    now = datetime.now(timezone.utc)
+    for image in images_response['Images']:
+        creation_date = datetime.strptime(image['CreationDate'], "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc)
+        age_days = (now - creation_date).days
+        if age_days > retention_days:
+            ami_id_to_delete = image['ImageId']
+            # Delete associated snapshots
+            for mapping in image.get('BlockDeviceMappings', []):
+                ebs = mapping.get('Ebs')
+                if ebs and 'SnapshotId' in ebs:
+                    try:
+                        ec2.delete_snapshot(SnapshotId=ebs['SnapshotId'])
+                        print(f"Deleted snapshot {ebs['SnapshotId']} for AMI {ami_id_to_delete}")
+                    except Exception as e:
+                        print(f"Could not delete snapshot {ebs['SnapshotId']}: {e}")
+            # Deregister the AMI
+            try:
+                ec2.deregister_image(ImageId=ami_id_to_delete)
+                print(f"Deregistered AMI {ami_id_to_delete} (age: {age_days} days)")
+            except Exception as e:
+                print(f"Could not deregister AMI {ami_id_to_delete}: {e}")
 
 def backup_instance(instance_id):
     with app.app_context():
         inst = Instance.query.filter_by(instance_id=instance_id).first()
-        if not inst:
-            print(f"Instance {instance_id} not found.")
+        global_config = BackupSettings.query.first()
+        if not inst or not global_config:
+            print(f"Instance or global config missing for {instance_id}")
             return
+
+        retention_days = get_effective_setting(inst.retention_days, global_config.retention_days)
+        region = inst.region
+        access_key = inst.access_key
+        secret_key = inst.secret_key
 
         try:
             ec2 = boto3.client(
                 'ec2',
-                region_name=inst.region,
-                aws_access_key_id=inst.access_key,
-                aws_secret_access_key=inst.secret_key
+                region_name=region,
+                aws_access_key_id=access_key,
+                aws_secret_access_key=secret_key
             )
             # Get instance name from AWS tags
             tags_response = ec2.describe_tags(
@@ -614,8 +655,8 @@ def backup_instance(instance_id):
                 instance_name=instance_name,
                 timestamp=datetime.utcnow(),
                 status='Pending',
-                region=inst.region,
-                retention_days=inst.retention_days
+                region=region,
+                retention_days=retention_days
             )
             db.session.add(backup)
             db.session.commit()
@@ -646,6 +687,9 @@ def backup_instance(instance_id):
 
             print(f"Backup success for {inst.instance_id} at {datetime.utcnow()}")
 
+            # --- CLEANUP OLD AMIs/SNAPSHOTS HERE ---
+            cleanup_old_amis(ec2, instance_name, retention_days)
+
         except Exception as e:
             if 'backup' in locals():
                 backup.status = 'Failed'
@@ -654,43 +698,60 @@ def backup_instance(instance_id):
 
 def schedule_all_instance_backups():
     with app.app_context():
+        global_config = BackupSettings.query.first()
         instances = Instance.query.all()
         for inst in instances:
             job_id = f"backup_{inst.instance_id}"
-            # Remove existing job if present
             try:
                 scheduler.remove_job(job_id)
             except Exception:
                 pass
-            freq = getattr(inst, 'backup_frequency', 5)
-            try:
-                freq = int(freq)
-            except Exception:
-                freq = 5
-            scheduler.add_job(
-                id=job_id,
-                func=backup_instance,
-                args=[inst.instance_id],
-                trigger='interval',
-                minutes=freq,
-                replace_existing=True
+            freq = get_effective_setting(
+                getattr(inst, 'backup_frequency', None),
+                global_config.backup_frequency if global_config else "5"
             )
-            print(f"Scheduled backup for {inst.instance_id} every {freq} minutes.")
+            # Schedule as interval or cron
+            try:
+                freq_int = int(freq)
+                scheduler.add_job(
+                    id=job_id,
+                    func=backup_instance,
+                    args=[inst.instance_id],
+                    trigger='interval',
+                    minutes=freq_int,
+                    replace_existing=True
+                )
+                print(f"Scheduled backup for {inst.instance_id} every {freq_int} minutes.")
+            except ValueError:
+                # Assume cron expression
+                cron_parts = freq.strip().split()
+                if len(cron_parts) == 5:
+                    scheduler.add_job(
+                        id=job_id,
+                        func=backup_instance,
+                        args=[inst.instance_id],
+                        trigger='cron',
+                        minute=cron_parts[0],
+                        hour=cron_parts[1],
+                        day=cron_parts[2],
+                        month=cron_parts[3],
+                        day_of_week=cron_parts[4],
+                        replace_existing=True
+                    )
+                    print(f"Scheduled backup for {inst.instance_id} with cron: {freq}")
+                else:
+                    print(f"Invalid backup frequency for {inst.instance_id}: {freq}")
 
-## Call this once at startup
-#@app.before_first_request
-#def init_scheduler():
-#    db.create_all()  # Ensure tables exist
-#    schedule_all_instance_backups()
+with app.app_context():
+    db.create_all()
+    # Ensure there's always a global config
+    if not BackupSettings.query.first():
+        config = BackupSettings(instance_id="default-instance-id")
+        db.session.add(config)
+        db.session.commit()
+    schedule_all_instance_backups()
 
-first_request = True
-
-@app.before_request
-def run_once():
-    global first_request
-    if first_request:
-        # Your setup code here (e.g., db.create_all(), scheduler setup, etc.)
-        first_request = False
+scheduler.start()
 
 # Example route to trigger rescheduling (e.g., after instance config changes)
 @app.route('/reschedule-backups')
@@ -753,6 +814,26 @@ def clear_notifications():
 
 ############################################################ Backup Settings ############################################################
 
+#@app.route('/backup-settings', methods=['GET'])
+#def backup_settings():
+#    config = BackupSettings.query.first()
+#    if not config:
+#        # Set a default instance_id (replace with your actual logic)
+#        config = BackupSettings(instance_id="default-instance-id")
+#        db.session.add(config)
+#        db.session.commit()
+#    return render_template('backup_settings.html', config=config)
+#
+#@app.route('/update-backup-settings', methods=['POST'])
+#def update_backup_settings():
+#    config = BackupSettings.query.first()
+#    if config:
+#        config.retention_days = int(request.form['retention_days'])
+#        config.backup_frequency = request.form['backup_frequency']
+#        db.session.commit()
+#        flash("Backup settings updated", "success")
+#    return redirect(url_for('backup_settings'))
+
 @app.route('/backup-settings', methods=['GET'])
 def backup_settings():
     config = BackupSettings.query.first()
@@ -771,6 +852,7 @@ def update_backup_settings():
         config.backup_frequency = request.form['backup_frequency']
         db.session.commit()
         flash("Backup settings updated", "success")
+        schedule_all_instance_backups()  # Reschedule jobs after global setting change
     return redirect(url_for('backup_settings'))
 
 ############################################################ Run ############################################################
