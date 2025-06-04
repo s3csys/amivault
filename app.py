@@ -8,6 +8,8 @@ from flask import Flask, render_template, request, redirect, url_for, flash, ses
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timezone, timedelta
+from flask_apscheduler import APScheduler
+
 
 app = Flask(__name__)
 app.secret_key = 'your-secret-key'
@@ -463,6 +465,10 @@ def update_instance(instance_id):
     inst.backup_frequency = backup_frequency
     inst.retention_days = retention_days
     db.session.commit()
+
+    # Reschedule all backup jobs so the new settings take effect
+    schedule_all_instance_backups()
+
     flash('Instance updated!', 'success')
     return redirect('/aws-instances')
     #return redirect(url_for('aws-instances'))
@@ -559,6 +565,138 @@ def start_backup(instance_id):
         flash(f"Backup failed: {str(e)}", "danger")
 
     return redirect(url_for('manage_instances'))
+
+
+
+
+# Scheduler config
+class Config:
+    SCHEDULER_API_ENABLED = True
+
+app.config.from_object(Config())
+scheduler = APScheduler()
+scheduler.init_app(app)
+scheduler.start()
+
+def backup_instance(instance_id):
+    with app.app_context():
+        inst = Instance.query.filter_by(instance_id=instance_id).first()
+        if not inst:
+            print(f"Instance {instance_id} not found.")
+            return
+
+        try:
+            ec2 = boto3.client(
+                'ec2',
+                region_name=inst.region,
+                aws_access_key_id=inst.access_key,
+                aws_secret_access_key=inst.secret_key
+            )
+            # Get instance name from AWS tags
+            tags_response = ec2.describe_tags(
+                Filters=[
+                    {'Name': 'resource-id', 'Values': [inst.instance_id]},
+                    {'Name': 'key', 'Values': ['Name']}
+                ]
+            )
+            instance_name = None
+            for tag in tags_response.get('Tags', []):
+                if tag['Key'] == 'Name':
+                    instance_name = tag['Value']
+                    break
+            if not instance_name:
+                print(f"No name tag for {inst.instance_id}")
+                return
+
+            # Create pending backup record
+            backup = Backup(
+                instance_id=inst.instance_id,
+                instance_name=instance_name,
+                timestamp=datetime.utcnow(),
+                status='Pending',
+                region=inst.region,
+                retention_days=inst.retention_days
+            )
+            db.session.add(backup)
+            db.session.commit()
+
+            # Create AMI
+            timestamp_str = datetime.now().strftime("%Y_%m_%d_%I_%M_%p")
+            ami_name = f"{instance_name}_{timestamp_str}"
+            ami_response = ec2.create_image(
+                InstanceId=inst.instance_id,
+                Name=ami_name,
+                NoReboot=True
+            )
+            ami_id = ami_response['ImageId']
+
+            # Tag the AMI
+            ec2.create_tags(
+                Resources=[ami_id],
+                Tags=[
+                    {'Key': 'CreatedBy', 'Value': 'AutoBackup'},
+                    {'Key': 'InstanceName', 'Value': instance_name}
+                ]
+            )
+
+            # Update backup record to Success and store ami_id
+            backup.status = 'Success'
+            backup.ami_id = ami_id
+            db.session.commit()
+
+            print(f"Backup success for {inst.instance_id} at {datetime.utcnow()}")
+
+        except Exception as e:
+            if 'backup' in locals():
+                backup.status = 'Failed'
+                db.session.commit()
+            print(f"Backup failed for {inst.instance_id}: {str(e)}")
+
+def schedule_all_instance_backups():
+    with app.app_context():
+        instances = Instance.query.all()
+        for inst in instances:
+            job_id = f"backup_{inst.instance_id}"
+            # Remove existing job if present
+            try:
+                scheduler.remove_job(job_id)
+            except Exception:
+                pass
+            freq = getattr(inst, 'backup_frequency', 5)
+            try:
+                freq = int(freq)
+            except Exception:
+                freq = 5
+            scheduler.add_job(
+                id=job_id,
+                func=backup_instance,
+                args=[inst.instance_id],
+                trigger='interval',
+                minutes=freq,
+                replace_existing=True
+            )
+            print(f"Scheduled backup for {inst.instance_id} every {freq} minutes.")
+
+## Call this once at startup
+#@app.before_first_request
+#def init_scheduler():
+#    db.create_all()  # Ensure tables exist
+#    schedule_all_instance_backups()
+
+first_request = True
+
+@app.before_request
+def run_once():
+    global first_request
+    if first_request:
+        # Your setup code here (e.g., db.create_all(), scheduler setup, etc.)
+        first_request = False
+
+# Example route to trigger rescheduling (e.g., after instance config changes)
+@app.route('/reschedule-backups')
+def reschedule_backups():
+    schedule_all_instance_backups()
+    return "Rescheduled all instance backups!", 200
 
 
 ############################################################ AWS Checker ############################################################

@@ -11,3 +11,4 @@ python-dateutil==2.8.2
 pyotp==2.9.0
 qrcode==7.4.2
 Pillow==10.3.0
+Flask-APScheduler==1.13.1
