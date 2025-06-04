@@ -341,3 +341,14 @@ button:hover {
 .action-danger:focus {
   background-color: #a61b1b;
 }
+
+.logo-heading {
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 600;
+  font-size: 2.8rem;
+  margin-left: 12px;
+  color: #2563eb; /* A professional blue */
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  user-select: none; /* Prevent text selection for logo */
+}
