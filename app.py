@@ -2,8 +2,9 @@ import pyotp
 import qrcode
 import io
 import base64
+import boto3
 
-from flask import Flask, render_template, request, redirect, url_for, flash, session, send_file
+from flask import Flask, render_template, request, redirect, url_for, flash, session, send_file, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -14,7 +15,7 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
 
-# ---------------------- Models ----------------------
+############################################################ Models ############################################################
 
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -49,7 +50,7 @@ class BackupSettings(db.Model):
 
 two_factor_secret = db.Column(db.String(32), nullable=True)
 
-# ---------------------- Routes ----------------------
+############################################################ Routes ############################################################
 
 @app.route('/')
 def dashboard():
@@ -150,7 +151,7 @@ def logout():
     session.clear()
     return redirect(url_for('login'))
 
-# --------- User Management ---------
+############################################################ User Management ############################################################
 
 @app.route('/user-settings', methods=['GET'])
 def user_settings():
@@ -284,7 +285,7 @@ def toggle_2fa():
     flash("Two-factor authentication setting updated.", "success")
     return redirect(url_for('user_settings'))
 
-# --------- AWS Instances ---------
+############################################################ AWS Instances ############################################################
 
 @app.route('/aws-instances', methods=['GET'])
 def manage_instances():
@@ -371,11 +372,11 @@ def delete_instance(instance_id):
 #    return redirect(url_for('manage_instances'))
 
 
-# List all instances
-@app.route('/instances')
-def list_instances():
-    instances = Instance.query.all()
-    return render_template('instances.html', instances=instances)
+## List all instances
+#@app.route('/instances')
+#def list_instances():
+#    instances = Instance.query.all()
+#    return render_template('instances.html', instances=instances)
 
 ## Add a new instance
 #@app.route('/add-instance', methods=['GET', 'POST'])
@@ -446,7 +447,52 @@ def update_instance(instance_id):
 #    flash('Instance deleted!', 'success')
 #    return redirect(url_for('list_instances'))
 
-# --------- Notifications ---------
+@app.route('/start-backup/<instance_id>', methods=['POST'])
+def start_backup(instance_id):
+    # TODO: Add your backup logic here
+    # For example: backup_instance(instance_id)
+    flash(f"Manual backup started for instance {instance_id}", "success")
+    return redirect(url_for('manage_instances'))
+
+############################################################ AWS Checker ############################################################
+@app.route('/check-instance', methods=['POST'])
+def check_instance():
+    data = request.get_json()
+    instance_id = data.get('instance_id')
+    access_key = data.get('access_key')
+    secret_key = data.get('secret_key')
+    region = data.get('region')
+
+    if not all([instance_id, access_key, secret_key, region]):
+        return jsonify(success=False, error='Missing required fields')
+
+    try:
+        # Use boto3 client for more robust error handling
+        ec2_client = boto3.client(
+            'ec2',
+            region_name=region,
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key
+        )
+        response = ec2_client.describe_instances(InstanceIds=[instance_id])
+        reservations = response.get('Reservations', [])
+        if not reservations or not reservations[0].get('Instances'):
+            return jsonify(success=False, error='Instance not found in this region/account.')
+
+        instance = reservations[0]['Instances'][0]
+        name = instance_id  # Default to ID
+        tags = instance.get('Tags', [])
+        for tag in tags:
+            if tag['Key'] == 'Name' and tag.get('Value'):
+                name = tag['Value']
+                break
+        return jsonify(success=True, instance_name=name)
+    except Exception as e:
+        # Return the AWS error message for debugging
+        return jsonify(success=False, error=str(e))
+
+
+############################################################ Notifications ############################################################
 def add_notification(message, category='info'):
     if 'notifications' not in session:
         session['notifications'] = []
@@ -460,7 +506,7 @@ def clear_notifications():
     session.modified = True
     return redirect(request.referrer or url_for('instances'))
 
-# --------- Backup Settings ---------
+############################################################ Backup Settings ############################################################
 
 @app.route('/backup-settings', methods=['GET'])
 def backup_settings():
@@ -482,7 +528,7 @@ def update_backup_settings():
     return redirect(url_for('backup_settings'))
 
 
-# ---------------------- Run ----------------------
+############################################################ Run ############################################################
 
 if __name__ == '__main__':
     with app.app_context():

@@ -287,3 +287,20 @@ button:hover {
   }
 }
 
+.small-check-btn {
+    padding: 4px 8px;
+    font-size: 0.8rem;
+    background-color: #3498db;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    width: auto;           /* Ensure it's only as wide as its content */
+    white-space: nowrap;   /* Prevent the text from wrapping */
+    flex-shrink: 0;        /* Prevent shrinking in flex layout */
+}
+
+
+.small-check-btn:hover {
+    background-color: #2980b9;
+}

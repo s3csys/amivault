@@ -8,9 +8,7 @@
       <h3 style="margin-top:0; color:#4f8cff;">Add New Instance</h3>
       <form method="POST" action="{{ url_for('add_instance') }}" class="instance-form">
         <label>Instance ID</label>
-        <input type="text" name="instance_id" placeholder="Instance ID" required>
-        <label>Instance Name</label>
-        <input type="text" name="instance_name" placeholder="Instance Name" required>
+        <input type="text" id="instance_id" name="instance_id" placeholder="Instance ID" required>
         
         <label>AWS Region</label>
         <select id="region_select_add" name="region" onchange="toggleCustomRegion('region_select_add', 'custom_region_add')" required>
@@ -47,9 +45,17 @@
         >
 
         <label>AWS Access Key</label>
-        <input type="text" name="access_key" placeholder="AWS Access Key" required>
+        <input type="text" id="access_key" name="access_key" placeholder="AWS Access Key" required>
+
         <label>AWS Secret Key</label>
-        <input type="password" name="secret_key" placeholder="AWS Secret Key" required>
+        <input type="password" id="secret_key" name="secret_key" placeholder="AWS Secret Key" required>
+
+        <label>Instance Name (Optional)</label>
+        <div style="display: flex; gap: 10px; align-items: center;">
+            <input type="text" id="instance_name" name="instance_name" placeholder="Instance Name" required style="flex: 1;">
+            <button type="button" class="small-check-btn" id="check-instance-btn">Check</button>
+        </div>
+        
         <label>Backup Frequency</label>
         <select id="backup_frequency_select_add" name="backup_frequency" onchange="toggleCustomFreq('backup_frequency_select_add', 'custom_backup_frequency_add', 'customHelpTextAdd')" required>
             <option value="*/5 * * * *">Every 5 Minutes</option>
@@ -81,6 +87,8 @@
       </form>
     </div>
   </div>
+
+
   <!-- List Instances -->
   {% if instances %}
   <div class="section">
@@ -96,6 +104,7 @@
               <th>Backup Frequency</th>
               <th>Retention Days</th>
               <th>Update</th>
+              <th>Manual Backup</th>
               <th>Delete</th>
             </tr>
           </thead>
@@ -150,6 +159,11 @@
                 <td><input type="number" name="retention_days" value="{{ inst.retention_days or 7 }}" min="1" required></td>
                 <td><button type="submit">Update</button></td>
               </form>
+                <td>
+                  <form method="POST" action="{{ url_for('start_backup', instance_id=inst.instance_id) }}">
+                    <button type="submit" style="background:#22c55e; color:#fff; border:none;">Start Backup</button>
+                  </form>
+                </td>
               <td>
                 <form method="POST" action="{{ url_for('delete_instance', instance_id=inst.instance_id) }}"> 
                   <button type="submit" onclick="return confirm('Delete this instance?');" style="background:#ff3b30; border:none;">Delete</button>
@@ -193,4 +207,74 @@ function toggleCustomRegion(selectElemId, customInputId) {
     }
 }
 </script>
+
+<!--########## check-instance-btn ########## -->
+<!-- Add this in your HTML, preferably before </body> -->
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    document.getElementById('check-instance-btn').onclick = function() {
+        const instanceId = document.getElementById('instance_id').value;
+        const accessKey = document.getElementById('access_key').value;
+        const secretKey = document.getElementById('secret_key').value;
+        let region = document.getElementById('region_select_add').value;
+        if (region === 'custom') {
+            region = document.getElementById('custom_region_add').value.trim();
+        }
+
+        if (!instanceId || !accessKey || !secretKey || !region) {
+            Swal.fire({
+                icon: 'warning',
+                title: 'Missing Fields',
+                text: 'Please enter the Instance ID, Access Key, Secret Key, and Region.',
+                confirmButtonColor: '#3085d6'
+            });
+            return;
+        }
+
+        fetch('{{ url_for("check_instance") }}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                instance_id: instanceId,
+                access_key: accessKey,
+                secret_key: secretKey,
+                region: region
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                document.getElementById('instance_name').value = data.instance_name;
+                Swal.fire({
+                    icon: 'success',
+                    title: 'Success',
+                    text: 'Instance found and name filled!',
+                    timer: 2000,
+                    showConfirmButton: false
+                });
+            } else {
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Error',
+                    html: 'Instance not found or not accessible.<br>' + (data.error || ''),
+                    confirmButtonColor: '#d33'
+                });
+            }
+        })
+        .catch(() => Swal.fire({
+            icon: 'error',
+            title: 'Error',
+            text: 'Error checking instance.',
+            confirmButtonColor: '#d33'
+        }));
+    };
+});
+</script>
+
+
+
+
 {% endblock %}
