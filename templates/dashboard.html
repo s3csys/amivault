@@ -80,15 +80,17 @@
             </td>
             <td>{{ b.region or 'N/A' }}</td>
             <td>
-              {% if b.ami_id %}
-                <a href="https://console.aws.amazon.com/ec2/v2/home?region={{ b.region }}#ImageDetails:imageId={{ b.ami_id }}" target="_blank" style="text-decoration: none;">
-                  <button type="button" class="action-btn">View AMI</button>
-                </a>
-                <!-- Delete AMI button -->
-                <form action="{{ url_for('delete_ami', ami_id=b.ami_id) }}" method="post" style="display:inline;">
-                  <button type="submit" class="action-btn action-danger" onclick="return confirm('Are you sure you want to delete this AMI and its snapshots?');">Delete</button>
-                </form>
-              {% endif %}
+{% if b.ami_id %}
+  <a href="https://console.aws.amazon.com/ec2/v2/home?region={{ b.region }}#ImageDetails:imageId={{ b.ami_id }}" 
+     target="_blank" style="text-decoration: none;">
+    <button type="button" class="action-btn btn-small" title="View AMI">View AMI</button>
+  </a>
+  <!-- Delete AMI button -->
+  <form action="{{ url_for('delete_ami', ami_id=b.ami_id) }}" method="post" class="delete-ami-form" style="display:inline;">
+    <button type="submit" class="action-btn action-danger btn-small" title="Delete AMI">Delete</button>
+  </form>
+{% endif %}
+
               {% if b.log_url %}
                 <a href="{{ b.log_url }}" class="action-btn" download>Download Log</a>
               {% endif %}
@@ -103,4 +105,33 @@
     {% endif %}
   </div>
 </div>
+
+
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  document.querySelectorAll('.delete-ami-form').forEach(function(form) {
+    form.addEventListener('submit', function(e) {
+      e.preventDefault();
+      Swal.fire({
+        icon: 'warning',
+        title: 'Danger Zone!',
+        text: 'Are you sure you want to delete this AMI and its snapshots?',
+        showCancelButton: true,
+        confirmButtonText: 'Yes, delete it!',
+        cancelButtonText: 'Cancel',
+        confirmButtonColor: '#d33',
+        cancelButtonColor: '#3085d6'
+      }).then((result) => {
+        if (result.isConfirmed) {
+          form.submit();
+        }
+      });
+    });
+  });
+});
+</script>
+
+
+
 {% endblock %}
