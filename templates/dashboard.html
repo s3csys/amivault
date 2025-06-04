@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
+
 <div class="content">
   <!-- Summary Stats Section -->
   <div class="section stats">
@@ -46,6 +47,7 @@
             <th>Instance ID</th>
             <th>Instance Name</th>
             <th>AMI ID</th>
+            <th>AMI Name</th>
             <th>Backup Timestamp</th>
             <th>Status</th>
             <th>Region</th>
@@ -64,6 +66,9 @@
                 N/A
               {% endif %}
             </td>
+            <td>
+              {{ b.ami_name or 'N/A' }}
+            </td>
             <td>{{ b.timestamp or 'N/A' }}</td>
             <td>
               <span class="status-badge
@@ -76,7 +81,13 @@
             <td>{{ b.region or 'N/A' }}</td>
             <td>
               {% if b.ami_id %}
-                <a href="https://console.aws.amazon.com/ec2/v2/home?region={{ b.region }}#ImageDetails:imageId={{ b.ami_id }}" target="_blank" class="action-btn">View AMI</a>
+                <a href="https://console.aws.amazon.com/ec2/v2/home?region={{ b.region }}#ImageDetails:imageId={{ b.ami_id }}" target="_blank" style="text-decoration: none;">
+                  <button type="button" class="action-btn">View AMI</button>
+                </a>
+                <!-- Delete AMI button -->
+                <form action="{{ url_for('delete_ami', ami_id=b.ami_id) }}" method="post" style="display:inline;">
+                  <button type="submit" class="action-btn action-danger" onclick="return confirm('Are you sure you want to delete this AMI and its snapshots?');">Delete</button>
+                </form>
               {% endif %}
               {% if b.log_url %}
                 <a href="{{ b.log_url }}" class="action-btn" download>Download Log</a>

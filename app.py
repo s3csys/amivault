@@ -3,6 +3,7 @@ import qrcode
 import io
 import base64
 import boto3
+import pytz
 
 from flask import Flask, render_template, request, redirect, url_for, flash, session, send_file, jsonify
 from flask_sqlalchemy import SQLAlchemy
@@ -66,6 +67,7 @@ class Backup(db.Model):
     instance_id = db.Column(db.String(64), nullable=False)
     instance_name = db.Column(db.String(128))
     ami_id = db.Column(db.String(64))
+    ami_name = db.Column(db.String(128))
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
     status = db.Column(db.String(32), default='Pending')  # 'Pending', 'Success', 'Failed'
     region = db.Column(db.String(32))
@@ -519,20 +521,9 @@ def start_backup(instance_id):
             flash(f"Could not find 'Name' tag for {instance_id}.", "danger")
             return redirect(url_for('manage_instances'))
 
-        # Create a pending backup record
-        backup = Backup(
-            instance_id=instance_id,
-            instance_name=instance_name,
-            timestamp=datetime.utcnow(),
-            status='Pending',
-            region=aws_region,
-            retention_days=retention_days
-        )
-        db.session.add(backup)
-        db.session.commit()
-
         # Create AMI
-        timestamp_str = datetime.now().strftime("%Y_%m_%d_%I_%M_%p")
+        zone = pytz.timezone('Asia/Kolkata')
+        timestamp_str = datetime.now(zone).strftime("%Y_%m_%d_%I_%M_%p")
         ami_name = f"{instance_name}_{timestamp_str}"
         ami_response = ec2.create_image(
             InstanceId=instance_id,
@@ -540,6 +531,20 @@ def start_backup(instance_id):
             NoReboot=True
         )
         ami_id = ami_response['ImageId']
+
+        # Create a pending backup record
+        backup = Backup(
+            instance_id=instance_id,
+            instance_name=instance_name,
+            #ami_id=ami_id,
+            ami_name=ami_name, 
+            timestamp=datetime.utcnow(),
+            status='Pending',
+            region=aws_region,
+            retention_days=retention_days
+        )
+        db.session.add(backup)
+        db.session.commit()
 
         # Tag the AMI
         ec2.create_tags(
@@ -653,6 +658,8 @@ def backup_instance(instance_id):
             backup = Backup(
                 instance_id=inst.instance_id,
                 instance_name=instance_name,
+                #ami_id=ami_id,
+                ami_name=ami_name, 
                 timestamp=datetime.utcnow(),
                 status='Pending',
                 region=region,
@@ -662,7 +669,8 @@ def backup_instance(instance_id):
             db.session.commit()
 
             # Create AMI
-            timestamp_str = datetime.now().strftime("%Y_%m_%d_%I_%M_%p")
+            zone = pytz.timezone('Asia/Kolkata')
+            timestamp_str = datetime.now(zone).strftime("%Y_%m_%d_%I_%M_%p")
             ami_name = f"{instance_name}_{timestamp_str}"
             ami_response = ec2.create_image(
                 InstanceId=inst.instance_id,
@@ -758,6 +766,58 @@ scheduler.start()
 def reschedule_backups():
     schedule_all_instance_backups()
     return "Rescheduled all instance backups!", 200
+
+
+
+
+@app.route('/delete-ami/<ami_id>', methods=['POST'])
+def delete_ami(ami_id):
+    backup = Backup.query.filter_by(ami_id=ami_id).first()
+    if not backup:
+        flash("AMI record not found.", "danger")
+        return redirect(url_for('dashboard'))  # Replace with your actual backups page endpoint
+
+    # Get AWS credentials and region from the instance or backup record
+    instance = Instance.query.filter_by(instance_id=backup.instance_id).first()
+    if not instance:
+        flash("Instance record not found.", "danger")
+        return redirect(url_for('bashboard'))
+
+    try:
+        ec2 = boto3.client(
+            'ec2',
+            region_name=backup.region,
+            aws_access_key_id=instance.access_key,
+            aws_secret_access_key=instance.secret_key
+        )
+        # Get AMI details to find associated snapshots
+        image = ec2.describe_images(ImageIds=[ami_id])['Images'][0]
+
+        # Deregister the AMI
+        ec2.deregister_image(ImageId=ami_id)
+        flash(f"AMI {ami_id} deregistered.", "success")
+
+        # Delete associated snapshots
+        deleted_snapshots = []
+        for mapping in image.get('BlockDeviceMappings', []):
+            ebs = mapping.get('Ebs')
+            if ebs and 'SnapshotId' in ebs:
+                try:
+                    ec2.delete_snapshot(SnapshotId=ebs['SnapshotId'])
+                    deleted_snapshots.append(ebs['SnapshotId'])
+                except Exception as e:
+                    flash(f"Failed to delete snapshot {ebs['SnapshotId']}: {e}", "danger")
+        if deleted_snapshots:
+            flash(f"Deleted snapshots: {', '.join(deleted_snapshots)}", "success")
+
+        # Optionally, remove the backup record from the database
+        db.session.delete(backup)
+        db.session.commit()
+
+    except Exception as e:
+        flash(f"Error deleting AMI or snapshots: {e}", "danger")
+
+    return redirect(url_for('dashboard'))
 
 
 ############################################################ AWS Checker ############################################################
