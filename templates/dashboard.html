@@ -36,12 +36,30 @@
     </div>
   </div>
 
-  <!-- Backup Records Table -->
+  <!-- Backup Records Table with Custom Centered Autocomplete -->
   <div class="section">
-    <h2>Backup Records</h2>
+    <div class="backup-header-bar">
+      <h2 class="backup-title">Backup Records</h2>
+      <div class="autocomplete-container">
+        <span class="search-bar-icon">
+          <!--<svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <circle cx="11" cy="11" r="8"/>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>-->
+        </span>
+        <input
+          type="text"
+          id="searchInput"
+          placeholder="Search by instance name, ID, or AMI ID"
+          autocomplete="off"
+          class="search-bar-input"
+        >
+        <div id="customSuggestions" class="custom-suggestions"></div>
+      </div>
+    </div>
     {% if backups %}
     <div class="table-responsive">
-      <table class="backups-table">
+      <table class="backups-table" id="backupsTable">
         <thead>
           <tr>
             <th>Instance ID</th>
@@ -80,17 +98,16 @@
             </td>
             <td>{{ b.region or 'N/A' }}</td>
             <td>
-{% if b.ami_id %}
-  <a href="https://console.aws.amazon.com/ec2/v2/home?region={{ b.region }}#ImageDetails:imageId={{ b.ami_id }}" 
-     target="_blank" style="text-decoration: none;">
-    <button type="button" class="action-btn btn-small" title="View AMI">View AMI</button>
-  </a>
-  <!-- Delete AMI button -->
-  <form action="{{ url_for('delete_ami', ami_id=b.ami_id) }}" method="post" class="delete-ami-form" style="display:inline;">
-    <button type="submit" class="action-btn action-danger btn-small" title="Delete AMI">Delete</button>
-  </form>
-{% endif %}
-
+              {% if b.ami_id %}
+                <a href="https://console.aws.amazon.com/ec2/v2/home?region={{ b.region }}#ImageDetails:imageId={{ b.ami_id }}" 
+                   target="_blank" style="text-decoration: none;">
+                  <button type="button" class="action-btn btn-small" title="View AMI">View AMI</button>
+                </a>
+                <!-- Delete AMI button -->
+                <form action="{{ url_for('delete_ami', ami_id=b.ami_id) }}" method="post" class="delete-ami-form" style="display:inline;">
+                  <button type="submit" class="action-btn action-danger btn-small" title="Delete AMI">Delete</button>
+                </form>
+              {% endif %}
               {% if b.log_url %}
                 <a href="{{ b.log_url }}" class="action-btn" download>Download Log</a>
               {% endif %}
@@ -106,10 +123,119 @@
   </div>
 </div>
 
+<style>
+.table-responsive {
+  max-height: 700px;
+  overflow-y: auto;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  background: #fff;
+}
+.backups-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.backups-table th, .backups-table td {
+  padding: 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid #dee2e6;
+}
+.backups-table th {
+  background: #f8f9fa;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.backups-table tr {
+  transition: background 0.2s;
+}
+.backups-table tr:hover {
+  background: #f3f6fa;
+}
+.status-badge.status-success { color: #22c55e; }
+.status-badge.status-failed { color: #dc2626; }
+.status-badge.status-pending { color: #f59e42; }
+
+.backup-header-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  gap: 1.5rem;
+}
+.backup-title {
+  margin: 0;
+  font-size: 1.6rem;
+  font-weight: 600;
+  color: #222;
+}
+.autocomplete-container {
+  position: relative;
+  width: 340px;
+  max-width: 100%;
+}
+.search-bar-icon {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #b6bbc6;
+  pointer-events: none;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+}
+.search-bar-input {
+  width: 100%;
+  padding: 0.65em 1.2em 0.65em 2.5em;
+  border: 1.5px solid #d1d5db;
+  border-radius: 24px;
+  background: #f9fafb;
+  font-size: 1rem;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  box-shadow: 0 2px 8px rgba(60, 60, 60, 0.04);
+  outline: none;
+  text-align: center;
+}
+.search-bar-input:focus {
+  border-color: #4f8cff;
+  background: #fff;
+  box-shadow: 0 4px 16px rgba(79, 140, 255, 0.09);
+}
+.search-bar-input::placeholder {
+  text-align: center;
+}
+.custom-suggestions {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 110%;
+  background: #fff;
+  border: 1px solid #d1d5db;
+  border-radius: 0 0 12px 12px;
+  box-shadow: 0 4px 16px rgba(60,60,60,0.07);
+  z-index: 10;
+  max-height: 220px;
+  overflow-y: auto;
+  display: none;
+  text-align: center;
+}
+.custom-suggestion-item {
+  padding: 0.7em 0;
+  text-align: center;
+  cursor: pointer;
+  font-size: 1rem;
+  transition: background 0.15s;
+}
+.custom-suggestion-item:hover, .custom-suggestion-item.active {
+  background: #f0f4fa;
+}
+</style>
 
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+  // SweetAlert2 for delete confirmation
   document.querySelectorAll('.delete-ami-form').forEach(function(form) {
     form.addEventListener('submit', function(e) {
       e.preventDefault();
@@ -129,9 +255,109 @@ document.addEventListener('DOMContentLoaded', function() {
       });
     });
   });
+
+  // Custom centered autocomplete
+  let suggestions = [];
+  const input = document.getElementById('searchInput');
+  const suggestionsBox = document.getElementById('customSuggestions');
+
+  // Fetch suggestions from your backend
+  fetch('/search-suggestions')
+    .then(response => response.json())
+    .then(data => {
+      suggestions = data;
+    });
+
+  input.addEventListener('input', function() {
+    const value = input.value.trim().toLowerCase();
+    suggestionsBox.innerHTML = '';
+    if (!value) {
+      suggestionsBox.style.display = 'none';
+      return;
+    }
+    const filtered = suggestions.filter(s => s.toLowerCase().includes(value));
+    if (filtered.length === 0) {
+      suggestionsBox.style.display = 'none';
+      return;
+    }
+    filtered.forEach(s => {
+      const div = document.createElement('div');
+      div.className = 'custom-suggestion-item';
+      div.textContent = s;
+      div.onclick = function() {
+        input.value = s;
+        suggestionsBox.style.display = 'none';
+        input.dispatchEvent(new Event('input')); // to trigger table filtering if needed
+      };
+      suggestionsBox.appendChild(div);
+    });
+    suggestionsBox.style.display = 'block';
+  });
+
+  // Hide suggestions when clicking outside
+  document.addEventListener('click', function(e) {
+    if (!input.contains(e.target) && !suggestionsBox.contains(e.target)) {
+      suggestionsBox.style.display = 'none';
+    }
+  });
+
+  // Optional: Keyboard navigation
+  let activeIndex = -1;
+  input.addEventListener('keydown', function(e) {
+    const items = suggestionsBox.querySelectorAll('.custom-suggestion-item');
+    if (!items.length) return;
+    if (e.key === 'ArrowDown') {
+      activeIndex = (activeIndex + 1) % items.length;
+      updateActive(items);
+      e.preventDefault();
+    } else if (e.key === 'ArrowUp') {
+      activeIndex = (activeIndex - 1 + items.length) % items.length;
+      updateActive(items);
+      e.preventDefault();
+    } else if (e.key === 'Enter') {
+      if (activeIndex >= 0) {
+        items[activeIndex].click();
+        activeIndex = -1;
+        e.preventDefault();
+      }
+    } else {
+      activeIndex = -1;
+    }
+  });
+
+  function updateActive(items) {
+    items.forEach((item, idx) => {
+      item.classList.toggle('active', idx === activeIndex);
+    });
+  }
+
+  // Table filtering logic (unchanged)
+  const table = document.getElementById('backupsTable');
+  if (table) {
+    const tbody = table.getElementsByTagName('tbody')[0];
+    const rows = tbody.getElementsByTagName('tr');
+    input.addEventListener('input', function() {
+      const search = input.value.trim().toLowerCase();
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const instanceId = row.cells[0].textContent.toLowerCase();
+        const instanceName = row.cells[1].textContent.toLowerCase();
+        const amiId = row.cells[2].textContent.toLowerCase();
+        // Show row if any cell matches the search
+        if (
+          !search ||
+          instanceId.includes(search) ||
+          instanceName.includes(search) ||
+          amiId.includes(search)
+        ) {
+          row.style.display = '';
+        } else {
+          row.style.display = 'none';
+        }
+      }
+    });
+  }
 });
 </script>
-
-
 
 {% endblock %}

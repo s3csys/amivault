@@ -820,6 +820,15 @@ def reschedule_backups():
     schedule_all_instance_backups()
     return "Rescheduled all instance backups!", 200
 
+@app.route('/search-suggestions')
+def search_suggestions():
+    # Gather unique instance names, instance IDs, and AMI IDs from the database
+    instance_names = [i.instance_name for i in Instance.query.with_entities(Instance.instance_name).distinct() if i.instance_name]
+    instance_ids = [i.instance_id for i in Instance.query.with_entities(Instance.instance_id).distinct() if i.instance_id]
+    ami_ids = [b.ami_id for b in Backup.query.with_entities(Backup.ami_id).distinct() if b.ami_id]
+    # Combine and deduplicate
+    suggestions = list(set(instance_names + instance_ids + ami_ids))
+    return jsonify(suggestions)
 
 ############## delete ami working  #############################
 @app.route('/delete-ami/<ami_id>', methods=['POST'])
