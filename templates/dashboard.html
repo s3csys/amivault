@@ -37,16 +37,15 @@
   </div>
 
   <!-- Backup Records Table with Custom Centered Autocomplete -->
-  <div class="section">
-    <div class="backup-header-bar">
-      <h2 class="backup-title">Backup Records</h2>
+<div class="section">
+  <div class="backup-header-bar">
+    <h2 class="backup-title">Backup Records</h2>
+    <div class="header-actions-row">
+      <div class="bulk-action-bar">
+        <button id="bulkActionBtn" class="bulk-action-btn">Bulk Action</button>
+      </div>
       <div class="autocomplete-container">
-        <span class="search-bar-icon">
-          <!--<svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <circle cx="11" cy="11" r="8"/>
-            <line x1="21" y1="21" x2="16.65" y2="16.65"/>
-          </svg>-->
-        </span>
+        <span class="search-bar-icon"></span>
         <input
           type="text"
           id="searchInput"
@@ -57,6 +56,48 @@
         <div id="customSuggestions" class="custom-suggestions"></div>
       </div>
     </div>
+  </div>
+
+<!-- Bulk Action Modal -->
+<div id="bulkActionModal" class="modal" style="display:none;">
+  <div class="modal-content">
+    <span class="close" id="closeBulkModal">&times;</span>
+    <h3>Bulk Action</h3>
+    <form id="bulkDeleteForm">
+      <label>Select Instances:</label>
+      <div id="instanceCheckboxes"></div>
+      <label for="actionSelect">Action:</label>
+      <select id="actionSelect" required>
+        <option value="">Select Action</option>
+        <option value="delete_ami">Delete Selected AMIs</option>
+        <option value="export_amis">Export AMI List</option>
+        <option value="tag_amis">Add Tag to AMIs</option>
+        <!-- Add more actions as needed -->
+      </select>
+
+      <!-- Section for delete confirmation -->
+      <div id="amiListSection" style="margin-top:10px; display:none;">
+        <label>AMIs to be deleted:</label>
+        <ul id="amiList"></ul>
+      </div>
+
+      <!-- Section for export action (hidden by default) -->
+      <div id="exportSection" style="margin-top:10px; display:none;">
+        <label>Export will download a CSV of selected AMIs.</label>
+      </div>
+
+      <!-- Section for tagging action (hidden by default) -->
+      <div id="tagSection" style="margin-top:10px; display:none;">
+        <label>Tag Key: <input type="text" id="tagKey" /></label>
+        <label>Tag Value: <input type="text" id="tagValue" /></label>
+      </div>
+
+      <button type="submit" class="danger-btn" id="bulkActionSubmitBtn">Confirm</button>
+    </form>
+  </div>
+</div>
+
+
     {% if backups %}
     <div class="table-responsive">
       <table class="backups-table" id="backupsTable">
@@ -66,6 +107,7 @@
             <th>Instance Name</th>
             <th>AMI ID</th>
             <th>AMI Name</th>
+            <th>Backup Frequency</th>
             <th>Backup Timestamp</th>
             <th>Status</th>
             <th>Region</th>
@@ -87,6 +129,7 @@
             <td>
               {{ b.ami_name or 'N/A' }}
             </td>
+             <td>{{ b.instance.backup_frequency if b.instance else 'N/A' }}</td>
             <td>{{ b.timestamp or 'N/A' }}</td>
             <td>
               <span class="status-badge
@@ -359,5 +402,143 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 });
 </script>
+
+<!------------ bulk actions------>
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  document.getElementById('bulkActionBtn').onclick = function() {
+    fetch('/api/instances')
+      .then(res => res.json())
+      .then(instances => {
+        let instanceOptions = instances.map(i =>
+          `<label><input type="checkbox" name="instance" value="${i.instance_id}"> ${i.instance_name} (${i.instance_id})</label><br>`
+        ).join('');
+        Swal.fire({
+          title: 'Bulk Action',
+          html:
+            `<form id="swalBulkForm">
+              <div style="text-align:left;margin-bottom:8px;"><b>Select Instances:</b><br>${instanceOptions}</div>
+              <div style="text-align:left;margin-bottom:8px;">
+                <label for="swalActionSelect"><b>Action:</b></label>
+                <select id="swalActionSelect" required style="width:100%;margin-top:4px;">
+                  <option value="">Select Action</option>
+                  <option value="delete_ami">Delete Selected AMIs</option>
+                  <option value="export_amis">Export AMI List</option>
+                  <option value="tag_amis">Add Tag to AMIs</option>
+                </select>
+              </div>
+              <div id="swalTagFields" style="display:none;margin-bottom:8px;">
+                <input id="swalTagKey" class="swal2-input" placeholder="Tag Key" style="width:48%;display:inline-block;">
+                <input id="swalTagValue" class="swal2-input" placeholder="Tag Value" style="width:48%;display:inline-block;">
+              </div>
+            </form>`,
+          showCancelButton: true,
+          confirmButtonText: 'Confirm',
+          didOpen: () => {
+            document.getElementById('swalActionSelect').onchange = function() {
+              document.getElementById('swalTagFields').style.display =
+                this.value === 'tag_amis' ? 'block' : 'none';
+            };
+          },
+          preConfirm: () => {
+            const checked = Array.from(document.querySelectorAll('input[name="instance"]:checked')).map(cb => cb.value);
+            const action = document.getElementById('swalActionSelect').value;
+            const tagKey = document.getElementById('swalTagKey') ? document.getElementById('swalTagKey').value : '';
+            const tagValue = document.getElementById('swalTagValue') ? document.getElementById('swalTagValue').value : '';
+            if (checked.length === 0) {
+              Swal.showValidationMessage('Select at least one instance.');
+              return false;
+            }
+            if (!action) {
+              Swal.showValidationMessage('Select an action.');
+              return false;
+            }
+            if (action === 'tag_amis' && (!tagKey || !tagValue)) {
+              Swal.showValidationMessage('Enter both tag key and value.');
+              return false;
+            }
+            return {checked, action, tagKey, tagValue};
+          }
+        }).then(result => {
+          if (!result.isConfirmed) return;
+          const {checked, action, tagKey, tagValue} = result.value;
+
+          if (action === 'delete_ami') {
+            fetch('/bulk-delete-amis', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({instances: checked})
+            })
+            .then(res => {
+              if (res.redirected) {
+                window.location.href = res.url; // Redirect so flash message appears in your notification dropdown[1]
+              } else {
+                location.reload();
+              }
+            });
+          } else if (action === 'export_amis') {
+            fetch('/bulk-export-amis', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({instances: checked})
+            })
+            .then(res => {
+              if (!res.ok) throw new Error('Export failed');
+              return res.blob();
+            })
+            .then(blob => {
+              const url = window.URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = "amis_export.csv";
+              document.body.appendChild(a);
+              a.click();
+              a.remove();
+              window.URL.revokeObjectURL(url);
+              Swal.fire('Exported', 'AMI list exported as CSV.', 'success');
+            })
+            .catch(err => {
+              Swal.fire('Export failed', err.message, 'error');
+            });
+          } else if (action === 'tag_amis') {
+            fetch('/bulk-tag-amis', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({instances: checked, tag_key: tagKey, tag_value: tagValue})
+            })
+            .then(res => {
+              if (res.redirected) {
+                window.location.href = res.url; // Redirect so flash message appears in your notification dropdown[1]
+              } else {
+                location.reload();
+              }
+            });
+          }
+        });
+      });
+  };
+});
+</script>
+
+
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  if (window.flashMessages && window.flashMessages.length > 0) {
+    window.flashMessages.forEach(function(msg) {
+      Swal.fire({
+        icon: msg[0] === 'success' ? 'success' : (msg[0] === 'error' ? 'error' : 'info'),
+        title: msg[0].charAt(0).toUpperCase() + msg[0].slice(1),
+        text: msg[1],
+        confirmButtonColor: '#2563eb',
+        timer: 1800,
+        showConfirmButton: false
+      });
+    });
+  }
+});
+</script>
+
 
 {% endblock %}

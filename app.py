@@ -4,13 +4,15 @@ import io
 import base64
 import boto3
 import pytz
+import os
+import csv
 
-from flask import Flask, render_template, request, redirect, url_for, flash, session, send_file, jsonify
+from flask import Flask, render_template, request, redirect, url_for, flash, session, send_file, jsonify, make_response
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timezone, timedelta
 from flask_apscheduler import APScheduler
-
+from io import StringIO
 
 app = Flask(__name__)
 app.secret_key = 'your-secret-key'
@@ -62,9 +64,7 @@ class BackupSettings(db.Model):
 class Backup(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     retention_days = db.Column(db.Integer, default=7)
-    #backup_frequency = db.Column(db.String(50), default="0 2 * * *")  # 2AM daily
-    backup_frequency = db.Column(db.String(64), default="5")
-    instance_id = db.Column(db.String(64), nullable=False)
+    instance_id = db.Column(db.String(64), db.ForeignKey('instance.instance_id'), nullable=False)
     instance_name = db.Column(db.String(128))
     ami_id = db.Column(db.String(64))
     ami_name = db.Column(db.String(128))
@@ -72,6 +72,10 @@ class Backup(db.Model):
     status = db.Column(db.String(32), default='Pending')  # 'Pending', 'Success', 'Failed'
     region = db.Column(db.String(32))
     log_url = db.Column(db.String(256))
+
+    # Relationship to Instance
+    instance = db.relationship('Instance', backref='backups', lazy=True)
+
 
 two_factor_secret = db.Column(db.String(32), nullable=True)
 
@@ -535,6 +539,7 @@ def update_instance(instance_id):
     db.session.commit()
 
     # Reschedule all backup jobs so the new settings take effect
+    reschedule_backups()
     schedule_all_instance_backups()
 
     flash('Instance updated!', 'success')
@@ -550,6 +555,70 @@ def update_instance(instance_id):
 #    db.session.commit()
 #    flash('Instance deleted!', 'success')
 #    return redirect(url_for('list_instances'))
+
+############################################################ Bulk Actions ############################################################
+
+@app.route('/bulk-export-amis', methods=['POST'])
+def bulk_export_amis():
+    data = request.get_json()
+    instance_ids = data.get('instances', [])
+    amis = Backup.query.filter(Backup.instance_id.in_(instance_ids)).all()
+
+    si = StringIO()
+    writer = csv.writer(si)
+    writer.writerow(['AMI ID', 'Instance Name', 'Instance ID', 'Region', 'Timestamp', 'Status'])
+    for ami in amis:
+        writer.writerow([ami.ami_id, ami.instance_name, ami.instance_id, ami.region, ami.timestamp, ami.status])
+
+    output = si.getvalue()
+    response = make_response(output)
+    response.headers["Content-Disposition"] = "attachment; filename=amis_export.csv"
+    response.headers["Content-type"] = "text/csv"
+    return response
+
+@app.route('/bulk-tag-amis', methods=['POST'])
+def bulk_tag_amis():
+    data = request.get_json()
+    instance_ids = data.get('instances', [])
+    tag_key = data.get('tag_key')
+    tag_value = data.get('tag_value')
+    if not tag_key or not tag_value:
+        flash('Tags added to selected AMIs.', 'success')
+        return redirect('/')  # or your desired page
+
+    tagged_amis = []
+    errors = []
+
+    for inst_id in instance_ids:
+        inst = Instance.query.filter_by(instance_id=inst_id).first()
+        if not inst:
+            errors.append(f"Instance {inst_id} not found.")
+            continue
+        backups = Backup.query.filter_by(instance_id=inst_id).all()
+        ec2 = boto3.client(
+            'ec2',
+            region_name=inst.region,
+            aws_access_key_id=inst.access_key,
+            aws_secret_access_key=inst.secret_key
+        )
+        for b in backups:
+            try:
+                ec2.create_tags(
+                    Resources=[b.ami_id],
+                    Tags=[{'Key': tag_key, 'Value': tag_value}]
+                )
+                tagged_amis.append(b.ami_id)
+            except Exception as e:
+                errors.append(f"Failed to tag {b.ami_id}: {e}")
+
+    msg = f"Tagged AMIs: {', '.join(tagged_amis)}"
+    if errors:
+        msg += " | Errors: " + " | ".join(errors)
+        flash(msg, "warning")
+    else:
+        flash(msg, "success")
+    return redirect('/')  # or your backup records page
+
 
 ############################################################ AWS AMi Creaters ############################################################
 
@@ -762,17 +831,28 @@ def schedule_all_instance_backups():
     with app.app_context():
         global_config = BackupSettings.query.first()
         instances = Instance.query.all()
+        scheduled_ids = set()
+
         for inst in instances:
             job_id = f"backup_{inst.instance_id}"
-            # Remove old job if exists
+            scheduled_ids.add(job_id)
+            print(f"Rescheduling {inst.instance_id}: frequency={inst.backup_frequency}")
+
+            # Remove any existing job with this ID before scheduling
             try:
                 scheduler.remove_job(job_id)
-            except Exception:
-                pass
+                print(f"Removed old job: {job_id}")
+            except Exception as e:
+                # Only log if the job existed before
+                if "No job by the id" not in str(e):
+                    print(f"Could not remove job {job_id}: {e}")
+
             freq = get_effective_setting(
                 getattr(inst, 'backup_frequency', None),
                 global_config.backup_frequency if global_config else "5"
             )
+            print(f"Scheduling {inst.instance_id} with freq: {freq}")
+
             # Schedule as interval or cron
             try:
                 freq_int = int(freq)
@@ -786,7 +866,6 @@ def schedule_all_instance_backups():
                 )
                 print(f"Scheduled backup for {inst.instance_id} every {freq_int} minutes.")
             except ValueError:
-                # Assume cron expression
                 cron_parts = freq.strip().split()
                 if len(cron_parts) == 5:
                     scheduler.add_job(
@@ -805,15 +884,18 @@ def schedule_all_instance_backups():
                 else:
                     print(f"Invalid backup frequency for {inst.instance_id}: {freq}")
 
-with app.app_context():
-    db.create_all()
-    if not BackupSettings.query.first():
-        config = BackupSettings(instance_id="default-instance-id")
-        db.session.add(config)
-        db.session.commit()
-    schedule_all_instance_backups()
+        # Remove any jobs that are no longer associated with an active instance
+        current_jobs = {job.id for job in scheduler.get_jobs()}
+        for job_id in current_jobs:
+            if job_id.startswith("backup_") and job_id not in scheduled_ids:
+                try:
+                    scheduler.remove_job(job_id)
+                    print(f"Cleaned up stale job: {job_id}")
+                except Exception as e:
+                    print(f"Could not remove stale job {job_id}: {e}")
 
-scheduler.start()
+        print("Current scheduled jobs:", scheduler.get_jobs())
+
 
 @app.route('/reschedule-backups')
 def reschedule_backups():
@@ -829,6 +911,64 @@ def search_suggestions():
     # Combine and deduplicate
     suggestions = list(set(instance_names + instance_ids + ami_ids))
     return jsonify(suggestions)
+
+#@app.route('/dashboard')
+#def dashboard():
+#    instances = Instance.query.all()  # Each Instance object should have .backup_frequency
+#    return render_template('dashboard.html', instances=instances)
+
+@app.route('/api/instances')
+def api_instances():
+    instances = Instance.query.all()
+    return jsonify([{'instance_id': i.instance_id, 'instance_name': i.instance_name} for i in instances])
+
+@app.route('/api/amis')
+def api_amis():
+    instance_ids = request.args.get('instances', '').split(',')
+    amis = Backup.query.filter(Backup.instance_id.in_(instance_ids)).all()
+    return jsonify([{'ami_id': b.ami_id, 'instance_name': b.instance_name} for b in amis])
+
+@app.route('/bulk-delete-amis', methods=['POST'])
+def bulk_delete_amis():
+    data = request.get_json()
+    instance_ids = data.get('instances', [])
+    deleted_amis = []
+    errors = []
+
+    for inst_id in instance_ids:
+        backups = Backup.query.filter_by(instance_id=inst_id).all()
+        for b in backups:
+            try:
+                inst = Instance.query.filter_by(instance_id=inst_id).first()
+                ec2 = boto3.client(
+                    'ec2',
+                    region_name=inst.region,
+                    aws_access_key_id=inst.access_key,
+                    aws_secret_access_key=inst.secret_key
+                )
+                # Deregister AMI
+                ec2.deregister_image(ImageId=b.ami_id)
+                # Delete associated snapshots
+                image = ec2.describe_images(ImageIds=[b.ami_id])['Images'][0]
+                for mapping in image.get('BlockDeviceMappings', []):
+                    ebs = mapping.get('Ebs')
+                    if ebs and 'SnapshotId' in ebs:
+                        ec2.delete_snapshot(SnapshotId=ebs['SnapshotId'])
+                deleted_amis.append(b.ami_id)
+            except Exception as e:
+                errors.append(f"Error deleting AMI {b.ami_id}: {e}")
+
+        # Bulk delete all Backup records for this instance
+        Backup.query.filter_by(instance_id=inst_id).delete(synchronize_session=False)
+    db.session.commit()  # Commit after all deletes[2][4]
+
+    if deleted_amis:
+        flash(f"Deleted AMIs: {', '.join(deleted_amis)}", "success")
+    if errors:
+        flash("Some errors occurred: " + " | ".join(errors), "danger")
+
+    return redirect('/')
+
 
 ############## delete ami working  #############################
 @app.route('/delete-ami/<ami_id>', methods=['POST'])
@@ -978,7 +1118,7 @@ def update_backup_settings():
 
 ############################################################ Run ############################################################
 
-if __name__ == '__main__':
+if __name__ == '__main__' or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
     with app.app_context():
         db.create_all()
 
@@ -990,4 +1130,15 @@ if __name__ == '__main__':
             db.session.commit()
             print("✅ Default admin user created: admin / admin123")
 
+        # Create default backup settings if not exists
+        if not BackupSettings.query.first():
+            config = BackupSettings(instance_id="default-instance-id")
+            db.session.add(config)
+            db.session.commit()
+
+        # Schedule all backups and start scheduler
+        schedule_all_instance_backups()
+        scheduler.start()
+
+    # Only run the Flask app if this is the main process (not when imported by WSGI server)
     app.run(host="0.0.0.0", port=8080, debug=True)
