@@ -1,115 +1,241 @@
 {% extends "base.html" %}
 {% block content %}
+
 <div class="content">
   <h2 style="text-align:center; color:#4f8cff; margin-bottom:2rem;">User Settings & Management</h2>
   <div class="user-management">
-    <!-- Add User -->
-    <div class="card">
-      <h3>Add User</h3>
-      <form method="POST" action="{{ url_for('add_user') }}">
-        <label for="add-username">Username</label>
-        <input type="text" id="add-username" name="username" placeholder="Enter username" required>
-        <label for="add-password">Password</label>
-        <input type="password" id="add-password" name="password" placeholder="Enter password" required>
-        <label for="add-email">Email</label>
-        <input type="email" id="add-email" name="email" placeholder="Enter email" required>
-        <button type="submit">Add User</button>
-      </form>
-    </div>
 
-    <!-- Reset Any User's Password -->
-    <div class="card">
-      <h3>Reset User Password</h3>
-      <form method="POST" action="{{ url_for('reset_password') }}">
-        <label for="reset-username">Username</label>
-        <input type="text" id="reset-username" name="username" placeholder="Enter username" required>
-        <label for="reset-password">New Password</label>
-        <input type="password" id="reset-password" name="password" placeholder="Enter new password" required>
-        <button type="submit">Reset Password</button>
-      </form>
-    </div>
+<!-- Add User -->
+<div class="card">
+  <h3>Add User</h3>
+  <form id="add-user-form" method="POST" action="{{ url_for('add_user') }}">
+    <label for="add-username">Username</label>
+    <input type="text" id="add-username" name="username" placeholder="Enter username" required>
+    <label for="add-password">Password</label>
+    <input type="password" id="add-password" name="password" placeholder="Enter password" required>
+    <div id="add-password-strength" style="margin-top: 6px; font-weight: 600;"></div>
+    <label for="add-email">Email</label>
+    <input type="email" id="add-email" name="email" placeholder="Enter email" required>
+    <div id="add-email-feedback" style="color:#dc2626; font-size:0.95em; margin-bottom:6px;"></div>
+    <button type="submit">Add User</button>
+  </form>
+</div>
 
-    <!-- Change Own Password -->
-    <div class="card">
-      <h3>Change My Password</h3>
-      <form method="POST" action="{{ url_for('reset_password') }}">
-        <label for="current-password">Current Password</label>
-        <input type="password" id="current-password" name="current_password" placeholder="Current password" required>
-        <label for="new-password">New Password</label>
-        <input type="password" id="new-password" name="new_password" placeholder="New password" required>
-        <button type="submit">Change Password</button>
-      </form>
+<!-- Reset Any User's Password -->
+<div class="card">
+  <h3>Reset User Password</h3>
+  <form id="reset-user-password-form" method="POST" action="{{ url_for('reset_password') }}">
+    <label for="reset-username">Username</label>
+    <input type="text" id="reset-username" name="username" placeholder="Enter username" required>
+    <label for="reset-user-new-password">New Password</label>
+    <input type="password" id="reset-user-new-password" name="new_password" placeholder="Enter new password" required>
+    <div style="font-size: 0.95em; color: #666; margin-bottom: 8px;">
+      <em>
+        Password must be at least 8 characters and include uppercase, lowercase, number, and special character.
+      </em>
     </div>
+    <div id="reset-user-password-strength" style="margin-top: 6px; font-weight: 600;"></div>
+    <button type="submit">Reset Password</button>
+  </form>
+</div>
 
-    <!-- Update Profile -->
-    <div class="card">
-      <h3>Update My Profile</h3>
-      <form method="POST" action="{{ url_for('update_profile') }}">
-        <label for="profile-username">Username</label>
-        <input type="text" id="profile-username" name="username" value="{{ current_user.username }}" readonly>
-        <label for="profile-email">Email</label>
-        <input type="email" id="profile-email" name="email" value="{{ current_user.email }}" required>
-        <button type="submit">Update Profile</button>
-      </form>
+<!-- Change Own Password -->
+<div class="card">
+  <h3>Change My Password</h3>
+  <form id="change-password-form" method="POST" action="{{ url_for('reset_password') }}">
+    <label for="current-password">Current Password</label>
+    <input type="password" id="current-password" name="current_password" placeholder="Current password" required>
+    <label for="new-password">New Password</label>
+    <input type="password" id="new-password" name="new_password" placeholder="New password" required>
+    <div style="font-size: 0.95em; color: #666; margin-bottom: 8px;">
+      <em>
+        Password must be at least 8 characters and include uppercase, lowercase, number, and special character.
+      </em>
     </div>
+    <div id="password-strength" style="margin-top: 6px; font-weight: 600;"></div>
+    <button type="submit">Change Password</button>
+  </form>
+</div>
 
-    <!-- to reset the databae -->
-    <div class="card" style="border:2px solid #ff3b30;">
-      <h3 style="color:#ff3b30;">Danger Zone</h3>
-      <form method="POST" action="{{ url_for('reinit_db') }}" onsubmit="return confirm('Are you sure you want to reinitialize the database? This will DELETE ALL DATA and cannot be undone!');">
-        <button type="submit" style="background:#ff3b30;">Reinitialize Database</button>
-        <p style="color:#b71c1c;font-size:0.95em;margin-top:1em;">This will remove <b>all users, instances, and backups</b> and create a new empty database.</p>
-      </form>
+<script>
+function checkPasswordStrength(password) {
+  let strength = 0;
+  if (password.length >= 8) strength++;
+  if (/[A-Z]/.test(password)) strength++;
+  if (/[a-z]/.test(password)) strength++;
+  if (/[0-9]/.test(password)) strength++;
+  if (/[^A-Za-z0-9]/.test(password)) strength++;
+
+  if (password.length === 0) return {text: '', color: '', strong: false};
+  if (strength <= 2) return {text: 'Password strength: Weak', color: '#dc2626', strong: false};
+  if (strength === 3) return {text: 'Password strength: Moderate', color: '#f59e42', strong: false};
+  if (strength >= 4) return {text: 'Password strength: Strong', color: '#22c55e', strong: true};
+}
+
+function validateEmail(email) {
+  // Basic RFC 5322 compliant regex for email validation
+  return /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(email);
+}
+
+function attachStrengthMeter(inputId, strengthDivId, formId, emailInputId=null, emailFeedbackId=null) {
+  const pwdInput = document.getElementById(inputId);
+  const strengthDiv = document.getElementById(strengthDivId);
+  const form = document.getElementById(formId);
+  const emailInput = emailInputId ? document.getElementById(emailInputId) : null;
+  const emailFeedback = emailFeedbackId ? document.getElementById(emailFeedbackId) : null;
+
+  if (pwdInput) {
+    pwdInput.addEventListener('input', function() {
+      const result = checkPasswordStrength(pwdInput.value);
+      strengthDiv.textContent = result.text;
+      strengthDiv.style.color = result.color;
+    });
+  }
+
+  if (emailInput && emailFeedback) {
+    emailInput.addEventListener('input', function() {
+      if (emailInput.value.length === 0) {
+        emailFeedback.textContent = '';
+      } else if (!validateEmail(emailInput.value)) {
+        emailFeedback.textContent = 'Please enter a valid email address.';
+      } else {
+        emailFeedback.textContent = '';
+      }
+    });
+  }
+
+  form.addEventListener('submit', function(e) {
+    if (pwdInput) {
+      const result = checkPasswordStrength(pwdInput.value);
+      if (!result.strong) {
+        e.preventDefault();
+        strengthDiv.textContent = 'Password must be at least 8 characters and include uppercase, lowercase, number, and special character.';
+        strengthDiv.style.color = '#dc2626';
+        pwdInput.focus();
+        return;
+      }
+    }
+    if (emailInput && emailFeedback) {
+      if (!validateEmail(emailInput.value)) {
+        e.preventDefault();
+        emailFeedback.textContent = 'Please enter a valid email address.';
+        emailInput.focus();
+      }
+    }
+  });
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  attachStrengthMeter('add-password', 'add-password-strength', 'add-user-form', 'add-email', 'add-email-feedback');
+  attachStrengthMeter('reset-user-new-password', 'reset-user-password-strength', 'reset-user-password-form');
+  attachStrengthMeter('new-password', 'password-strength', 'change-password-form');
+});
+</script>
+
+<!-- Update Profile -->
+<div class="card" style="margin-bottom: 2rem;">
+  <h3>Update My Profile</h3>
+  <form method="POST" action="{{ url_for('update_profile') }}">
+    <label for="profile-username" style="margin-bottom: 0.5em;">Username</label>
+    <input type="text" id="profile-username" name="username" value="{{ current_user.username }}" readonly style="margin-bottom: 1em;">
+    <label for="profile-email" style="margin-bottom: 0.5em;">Email</label>
+    <input type="email" id="profile-email" name="email" value="{{ current_user.email }}" required style="margin-bottom: 1.5em;">
+    <div style="font-size: 0.95em; color: #666; margin-bottom: 8px;">
+      <em>
+        Please enter your updated email address.
+      </em>
     </div>
+    <button type="submit" style="margin-top: 1em;">Update Profile</button>
+  </form>
+</div>
 
-    <!-- Two-Factor Authentication (UI only) -->
-    <div class="card">
-      <h3>Two-Factor Authentication</h3>
-      {% if current_user.two_factor_enabled %}
-        <form method="POST" action="{{ url_for('toggle_2fa') }}">
-          <label style="display:flex;align-items:center;gap:0.5em;">
-            <input type="checkbox" name="enable_2fa" checked>
-            Disable Two-Factor Authentication
-          </label>
-          <button type="submit">Update 2FA Settings</button>
+
+<!-- Two-Factor Authentication (UI only) -->
+<div class="card">
+  <h3>Two-Factor Authentication</h3>
+  {% if current_user.two_factor_enabled %}
+    <form method="POST" action="{{ url_for('toggle_2fa') }}">
+      <label style="display:flex;align-items:center;gap:0.5em;">
+        <input type="checkbox" name="enable_2fa" checked>
+        Disable Two-Factor Authentication
+      </label>
+      <button type="submit">Update 2FA Settings</button>
+    </form>
+    <p style="font-size:0.9em;color:#888;margin-top:1em;">
+      2FA is currently <b>enabled</b> on your account.
+    </p>
+  {% else %}
+    <a href="{{ url_for('setup_2fa') }}" class="button" style="margin-top:1em;">
+      Enable Two-Factor Authentication
+    </a>
+    <p style="font-size:0.9em;color:#888;margin-top:1em;">
+      For extra account security, enable two-factor authentication (2FA).
+    </p>
+  {% endif %}
+</div>
+
+<!-- User List -->
+<div class="section" style="margin-top:2.5rem;">
+  <div class="card user-list-card">
+    <h3>All Users</h3>
+    <ul class="user-list">
+      {% for user in users %}
+      <li>
+        <span>
+          <strong>{{ user.username }}</strong> ({{ user.email }})
+          {% if user.is_admin %}
+            <span style="color:#4f8cff;font-weight:bold;">[Admin]</span>
+          {% endif %}
+          {% if user.two_factor_enabled %}
+            <span style="color:green;">2FA Enabled</span>
+          {% endif %}            
+        </span>
+        <form method="POST" action="{{ url_for('delete_user') }}" class="delete-user-form" style="display:inline;">
+          <input type="hidden" name="username" value="{{ user.username }}">
+          <button type="submit" class="danger"
+            {% if user.username == current_user.username %}disabled title="You cannot delete your own account"{% endif %}>
+            Delete
+          </button>
         </form>
-        <p style="font-size:0.9em;color:#888;margin-top:1em;">
-          2FA is currently <b>enabled</b> on your account.
-        </p>
-      {% else %}
-        <a href="{{ url_for('setup_2fa') }}" class="button" style="margin-top:1em;">
-          Enable Two-Factor Authentication
-        </a>
-        <p style="font-size:0.9em;color:#888;margin-top:1em;">
-          For extra account security, enable two-factor authentication (2FA).
-        </p>
-      {% endif %}
-    </div>
 
-
-  <!-- User List -->
-  <div class="section" style="margin-top:2.5rem;">
-    <div class="card user-list-card">
-      <h3>All Users</h3>
-      <ul class="user-list">
-        {% for user in users %}
-        <li>
-          <span>
-            <strong>{{ user.username }}</strong> ({{ user.email }})
-            {% if user.is_admin %}
-              <span style="color:#4f8cff;font-weight:bold;">[Admin]</span>
-            {% endif %}
-            {% if user.two_factor_enabled %}
-              <span style="color:green;">2FA Enabled</span>
-            {% endif %}            
-          </span>
-          <form method="POST" action="{{ url_for('delete_user', username=user.username) }}" style="display:inline;">
-            <button type="submit" class="danger" onclick="return confirm('Delete this user?');" {% if user.username == current_user.username %}disabled title="You cannot delete your own account"{% endif %}>Delete</button>
-          </form>
-        </li>
-        {% endfor %}
-      </ul>
-    </div>
+        <script>
+        document.addEventListener('DOMContentLoaded', function() {
+          // Confirmation for delete-user forms
+          document.querySelectorAll('.delete-user-form').forEach(function(form) {
+            form.addEventListener('submit', function(e) {
+              e.preventDefault();
+              Swal.fire({
+                title: 'Are you sure?',
+                text: "This user will be permanently deleted.",
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#dc2626',
+                cancelButtonColor: '#3085d6',
+                confirmButtonText: 'Yes, delete!',
+                reverseButtons: true
+              }).then((result) => {
+                if (result.isConfirmed) {
+                  form.submit();
+                }
+              });
+            });
+          });
+        });
+        </script>
+      </li>
+      {% endfor %}
+    </ul>
   </div>
+</div>
+
+<!-- Danger Zone -->
+<div class="card" style="border:2px solid #ff3b30;">
+  <h3 style="color:#ff3b30;">Danger Zone</h3>
+  <form method="POST" action="{{ url_for('reinit_db') }}" onsubmit="return confirm('Are you sure you want to reinitialize the database? This will DELETE ALL DATA and cannot be undone!');">
+    <button type="submit" style="background:#ff3b30;">Reinitialize Database</button>
+    <p style="color:#b71c1c;font-size:0.95em;margin-top:1em;">This will remove <b>all users, instances, and backups</b> and create a new empty database.</p>
+  </form>
+</div>
+
 </div>
 {% endblock %}

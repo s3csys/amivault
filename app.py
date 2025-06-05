@@ -216,18 +216,25 @@ def delete_user():
     if user:
         db.session.delete(user)
         db.session.commit()
-        flash("User deleted", "info")
+        flash(f"{uname} User deleted", "info")
     return redirect(url_for('user_settings'))
 
-@app.route('/reset-password', methods=['POST'])
+@app.route('/reset_password', methods=['POST'])
 def reset_password():
-    uname = request.form['username']
-    new_pwd = request.form['new_password']
-    user = User.query.filter_by(username=uname).first()
-    if user:
-        user.set_password(new_pwd)
-        db.session.commit()
-        flash("Password reset successful", "success")
+    username = request.form.get('username')
+    new_password = request.form.get('new_password')
+    if not username or not new_password:
+        flash("Username and new password are required.", "error")
+        return redirect(url_for('user_settings'))
+
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        flash(f"User '{username}' not found.", "error")
+        return redirect(url_for('user_settings'))
+
+    user.password = generate_password_hash(new_password)
+    db.session.commit()
+    flash(f"✅ Password reset complete for {username}.", "success")
     return redirect(url_for('user_settings'))
 
 @app.route('/update-profile', methods=['POST'])
@@ -353,20 +360,73 @@ def add_instance():
         backup_frequency = request.form.get('backup_frequency')
         custom_backup_frequency = request.form.get('custom_backup_frequency', '').strip()
         retention_days = request.form.get('retention_days', 7)
-
-        if backup_frequency == 'custom':
-            backup_frequency = custom_backup_frequency
-        if not backup_frequency:
-            flash("Backup frequency is required.", "danger")
-            return redirect(url_for('add_instance'))
-
         region = request.form.get('region')
+        
+        # Handle custom region
         if region == 'custom':
             region = request.form.get('custom_region', '').strip()
         if not region:
-            flash("Region is required.", "danger")
+            flash("Region is required.", "error")
+            return redirect(url_for('add_instance'))
+            
+        # Handle custom backup frequency
+        if backup_frequency == 'custom':
+            backup_frequency = custom_backup_frequency
+        if not backup_frequency:
+            flash("Backup frequency is required.", "error")
+            return redirect(url_for('add_instance'))
+            
+        # Validate AWS credentials and instance existence
+        try:
+            import boto3
+            from botocore.exceptions import ClientError, NoCredentialsError
+            
+            # Create a session with the provided credentials
+            session = boto3.Session(
+                aws_access_key_id=access_key,
+                aws_secret_access_key=secret_key,
+                region_name=region
+            )
+            
+            # Create EC2 client
+            ec2 = session.client('ec2')
+            
+            # Check if instance exists and get its details
+            response = ec2.describe_instances(InstanceIds=[instance_id])
+            
+            # If we get here, instance exists. Now check its name
+            if 'Reservations' in response and response['Reservations']:
+                instances = response['Reservations'][0]['Instances']
+                if instances:
+                    # Find the Name tag
+                    actual_name = None
+                    for tag in instances[0].get('Tags', []):
+                        if tag['Key'] == 'Name':
+                            actual_name = tag['Value']
+                            break
+                    
+                    # If instance has a name tag and it doesn't match user input
+                    if actual_name and actual_name != instance_name:
+                        flash(f"Warning: AWS instance name is '{actual_name}', but you entered '{instance_name}'. The name has been updated.", "warning")
+                        instance_name = actual_name
+                
+        except ClientError as e:
+            error_code = e.response.get('Error', {}).get('Code', '')
+            if error_code == 'InvalidInstanceID.NotFound':
+                flash(f"Instance ID '{instance_id}' not found in AWS. Please check the ID and try again.", "error")
+            elif error_code == 'AuthFailure' or error_code == 'UnauthorizedOperation':
+                flash("AWS authentication failed. Please check your access key and secret key.", "error")
+            else:
+                flash(f"AWS error: {str(e)}", "error")
+            return redirect(url_for('add_instance'))
+        except NoCredentialsError:
+            flash("Invalid AWS credentials. Please check your access key and secret key.", "error")
+            return redirect(url_for('add_instance'))
+        except Exception as e:
+            flash(f"Error validating AWS details: {str(e)}", "error")
             return redirect(url_for('add_instance'))
 
+        # If validation passes, add the instance to the database
         inst = Instance(
             instance_id=instance_id,
             instance_name=instance_name,
@@ -378,8 +438,12 @@ def add_instance():
         )
         db.session.add(inst)
         db.session.commit()
-        flash('Instance added!', 'success')
+        flash('Instance added successfully!', 'success')
         return redirect('/aws-instances')
+    
+    # GET request - render the form
+    return render_template('aws_instances.html')
+
 
 @app.route('/delete-instance/<instance_id>', methods=['POST'])
 def delete_instance(instance_id):
@@ -585,11 +649,7 @@ app.config.from_object(Config())
 scheduler = APScheduler()
 scheduler.init_app(app)
 
-def get_effective_setting(instance_value, global_value):
-    return instance_value if instance_value not in [None, '', 0] else global_value
-
 def cleanup_old_amis(ec2, instance_name, retention_days):
-    """Delete AMIs and snapshots for this instance_name older than retention_days."""
     images_response = ec2.describe_images(
         Owners=['self'],
         Filters=[
@@ -655,20 +715,6 @@ def backup_instance(instance_id):
                 print(f"No name tag for {inst.instance_id}")
                 return
 
-            # Create pending backup record
-            backup = Backup(
-                instance_id=inst.instance_id,
-                instance_name=instance_name,
-                #ami_id=ami_id,
-                ami_name=ami_name, 
-                timestamp=datetime.utcnow(),
-                status='Pending',
-                region=region,
-                retention_days=retention_days
-            )
-            db.session.add(backup)
-            db.session.commit()
-
             # Create AMI
             zone = pytz.timezone('Asia/Kolkata')
             timestamp_str = datetime.now(zone).strftime("%Y_%m_%d_%I_%M_%p")
@@ -689,21 +735,28 @@ def backup_instance(instance_id):
                 ]
             )
 
-            # Update backup record to Success and store ami_id
-            backup.status = 'Success'
-            backup.ami_id = ami_id
+            # Record backup in DB
+            backup = Backup(
+                instance_id=inst.instance_id,
+                instance_name=instance_name,
+                ami_id=ami_id,
+                ami_name=ami_name,
+                timestamp=datetime.utcnow(),
+                status='Success',
+                region=region,
+                retention_days=retention_days
+            )
+            db.session.add(backup)
             db.session.commit()
 
             print(f"Backup success for {inst.instance_id} at {datetime.utcnow()}")
 
-            # --- CLEANUP OLD AMIs/SNAPSHOTS HERE ---
+            # Cleanup old AMIs and snapshots
             cleanup_old_amis(ec2, instance_name, retention_days)
 
         except Exception as e:
-            if 'backup' in locals():
-                backup.status = 'Failed'
-                db.session.commit()
             print(f"Backup failed for {inst.instance_id}: {str(e)}")
+            # Optionally record failure in DB
 
 def schedule_all_instance_backups():
     with app.app_context():
@@ -711,6 +764,7 @@ def schedule_all_instance_backups():
         instances = Instance.query.all()
         for inst in instances:
             job_id = f"backup_{inst.instance_id}"
+            # Remove old job if exists
             try:
                 scheduler.remove_job(job_id)
             except Exception:
@@ -753,7 +807,6 @@ def schedule_all_instance_backups():
 
 with app.app_context():
     db.create_all()
-    # Ensure there's always a global config
     if not BackupSettings.query.first():
         config = BackupSettings(instance_id="default-instance-id")
         db.session.add(config)
@@ -762,15 +815,13 @@ with app.app_context():
 
 scheduler.start()
 
-# Example route to trigger rescheduling (e.g., after instance config changes)
 @app.route('/reschedule-backups')
 def reschedule_backups():
     schedule_all_instance_backups()
     return "Rescheduled all instance backups!", 200
 
 
-
-
+############## delete ami working  #############################
 @app.route('/delete-ami/<ami_id>', methods=['POST'])
 def delete_ami(ami_id):
     backup = Backup.query.filter_by(ami_id=ami_id).first()
