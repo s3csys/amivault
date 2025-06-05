@@ -74,7 +74,7 @@
         {% endwith %}
         {% block content %}{% endblock %}
 
-        {% with messages = get_flashed_messages(with_categories=true) %}
+     <!-- {% with messages = get_flashed_messages(with_categories=true) %}
           {% if messages %}
             <div id="flash-popup-container" style="position: fixed; top: 30px; right: 30px; z-index: 9999;">
               {% for category, message in messages %}
@@ -85,7 +85,7 @@
               {% endfor %}
             </div>
           {% endif %}
-        {% endwith %}
+        {% endwith %}-->
 
       </main>
 
