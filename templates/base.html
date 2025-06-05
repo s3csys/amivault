@@ -70,9 +70,22 @@
                 <li class="flash-{{ category }}">{{ message }}</li>
               {% endfor %}
             </ul>
+            <script>
+              setTimeout(function() {
+                var flashes = document.querySelector('.flashes');
+                if (flashes) {
+                  flashes.style.transition = 'opacity 0.3s';
+                  flashes.style.opacity = '0';
+                  setTimeout(function() {
+                    flashes.style.display = 'none';
+                  }, 300);
+                }
+              }, 2500);
+            </script>
           {% endif %}
         {% endwith %}
         {% block content %}{% endblock %}
+
 
      <!-- {% with messages = get_flashed_messages(with_categories=true) %}
           {% if messages %}
@@ -88,13 +101,7 @@
         {% endwith %}-->
 
       </main>
-
-      <footer>
-        <p>&copy; 2025 AMI Backup System</p>
-      </footer>
-    </div>
-  </div>
-
+<footer style="text-align:center; padding:1rem; font-size:0.9rem; color:#555; border-top:1px solid #ddd;">&copy; 2025 <strong style="color:#222;">AMI Snapshot Manager</strong> &mdash; Built with <span style="color:#e25555;">&#10084;&#65039;</span> by <strong style="color:#333;">Secsys</strong> | <a href="https://secsys.pages.dev" target="_blank" style="color:#007acc; text-decoration:none;">Blog</a> | <a href="https://github.com/s3csys" target="_blank" style="color:#007acc; text-decoration:none;">GitHub</a></footer>
   <script>
   // Auto-hide popups after 2.5 seconds
   setTimeout(function() {
@@ -136,7 +143,7 @@ document.addEventListener('click', function(event) {
 {% endwith %}
 
 <!-------- flash pop up notification --------->
-<!-------- flash pop up notification --------->
+
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
