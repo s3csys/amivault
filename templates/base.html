@@ -126,6 +126,37 @@ document.addEventListener('click', function(event) {
 });
 </script>
 
+<!-------- flash pop up notification --------->
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    <script>
+      window.flashMessages = {{ messages|tojson }};
+    </script>
+  {% endif %}
+{% endwith %}
+
+<!-------- flash pop up notification --------->
+<!-------- flash pop up notification --------->
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  if (window.flashMessages && window.flashMessages.length > 0) {
+    window.flashMessages.forEach(function(msg) {
+      Swal.fire({
+        icon: msg[0] === 'success' ? 'success' : (msg[0] === 'error' ? 'error' : 'info'),
+        title: msg[0].charAt(0).toUpperCase() + msg[0].slice(1),
+        text: msg[1],
+        confirmButtonColor: '#2563eb',
+        timer: 1800,
+        showConfirmButton: false
+      });
+    });
+  }
+});
+</script>
+
+<!-------- flash pop up notification --------->
+
 
 </body>
 </html>

@@ -387,7 +387,8 @@ def delete_instance(instance_id):
     if instance:
         db.session.delete(instance)
         db.session.commit()
-        flash("Instance deleted", "success")
+        flash('Instance deleted!', 'success')
+        #flash('Instance added!', 'success')
     return redirect(url_for('manage_instances'))
 
 #@app.route('/update_instance/<string:instance_id>', methods=['POST'])
