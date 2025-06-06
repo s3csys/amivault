@@ -22,6 +22,7 @@ build/
 
 # Flask instance folder
 instance/
+amivault/
 .webassets-cache
 
 # Pytest
