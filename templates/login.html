@@ -188,9 +188,10 @@
         <input type="password" id="password" name="password" autocomplete="current-password" required />
         <button type="submit">Login</button>
       </form>
-      <div class="login-footer">
-        Forgot your password? <a href="#" style="color:#4f8cff;text-decoration:none;">Reset it</a>
-      </div>
+        <div class="login-footer">
+          Forgot your password?
+          <a href="#" class="reset-password-link" style="color:#4f8cff;text-decoration:none;">Reset it</a>
+        </div>
     </section>
   </main>
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
@@ -260,6 +261,21 @@
         }
       });
     }
+
+document.querySelector('.reset-password-link').addEventListener('click', function(e) {
+  e.preventDefault();
+  Swal.fire({
+    icon: 'info',
+    title: 'Password Reset Required',
+    html: `<div style="font-size:1.05em;">
+      For security reasons, password resets must be handled by an administrator.<br>
+      Please contact your system administrator to request a password reset.
+    </div>`,
+    confirmButtonText: 'OK',
+    confirmButtonColor: '#4f8cff'
+  });
+});
+
   </script>
 </body>
 </html>
