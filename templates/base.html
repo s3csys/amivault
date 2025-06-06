@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Ami Vault</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+
+</head>
+<body>
+  <div class="centered-content">
+    <div class="container">
+      <header>
+
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600&family=Poppins:wght@600&display=swap" rel="stylesheet">
+
+<!-- Place this wherever you want the logo and title to show -->
+<div class="logo-header" style="display: flex; align-items: center; gap: 1rem;">
+  <a href="/" style="display: flex; align-items: center; text-decoration: none;">
+    <div class="logo-container" aria-label="AMI Snapshot Logo" style="transition: transform 0.2s;">
+      <svg width="60" height="50" viewBox="10 20 42 40" fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+        aria-label="AMI Snapshot Logo" role="img"
+        style="filter: drop-shadow(0 2px 6px rgba(37,99,235,0.15));">
+        <!-- AWS Hexagon Outline -->
+        <polygon points="32 2 58 16 58 48 32 62 6 48 6 16"
+          stroke="#FF9900" stroke-width="2" fill="none"/>
+        <!-- Cloud Shape with gradient -->
+        <defs>
+          <linearGradient id="cloudGradient" x1="20" y1="38" x2="45" y2="52" gradientUnits="userSpaceOnUse">
+            <stop stop-color="#60a5fa"/>
+            <stop offset="1" stop-color="#2563EB"/>
+          </linearGradient>
+        </defs>
+        <path fill="url(#cloudGradient)" d="M45 38a9 9 0 0 0-18 0H20a7 7 0 0 0 0 14h25a7 7 0 0 0 0-14h-0z"/>
+        <!-- Camera Shutter (snapshot) -->
+        <circle cx="32" cy="38" r="6" fill="#fff" stroke="#60a5fa" stroke-width="2"/>
+        <path d="M32 32v12M26 38h12"
+          stroke="#2563EB" stroke-width="2" stroke-linecap="round"/>
+        <!-- Small circle center -->
+        <circle cx="32" cy="38" r="2.2" fill="#22c55e" stroke="#2563EB" stroke-width="1"/>
+      </svg>
+    </div>
+  <h1 class="logo-heading">Ami Vault</h1>
+
+
+    <!--<span style="margin-left: 0.5rem; font-size: 1.4rem; font-weight: 700; color: hsl(0, 0%, 100%)0%, 100%); letter-spacing: 1px;">
+      Ami Vault</span>
+    </span>-->
+  </a>
+</div>
+
+
+        <!--<h1>Ami Vault Dashboard</h1>-->
+        <nav>
+          <a href="{{ url_for('dashboard') }}">Home</a>
+          <a href="{{ url_for('manage_instances') }}">Instances</a>
+          <a href="{{ url_for('backup_settings') }}">Backup</a>
+          <a href="{{ url_for('user_settings') }}">User</a>
+          <a href="{{ url_for('logout') }}">Logout</a>
+          <a href=""></a>
+        </nav>
+      </header>
+
+      <main>
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            <ul class="flashes">
+              {% for category, message in messages %}
+                <li class="flash-{{ category }}">{{ message }}</li>
+              {% endfor %}
+            </ul>
+            <script>
+              setTimeout(function() {
+                var flashes = document.querySelector('.flashes');
+                if (flashes) {
+                  flashes.style.transition = 'opacity 0.3s';
+                  flashes.style.opacity = '0';
+                  setTimeout(function() {
+                    flashes.style.display = 'none';
+                  }, 300);
+                }
+              }, 2500);
+            </script>
+          {% endif %}
+        {% endwith %}
+        {% block content %}{% endblock %}
+
+
+     <!-- {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            <div id="flash-popup-container" style="position: fixed; top: 30px; right: 30px; z-index: 9999;">
+              {% for category, message in messages %}
+                <div class="alert alert-{{ 'success' if category == 'success' else 'danger' }} flash-popup" role="alert"
+                     style="min-width: 250px; box-shadow: 0 2px 12px rgba(0,0,0,0.15); margin-bottom: 10px;">
+                  {{ message }}
+                </div>
+              {% endfor %}
+            </div>
+          {% endif %}
+        {% endwith %}-->
+
+      </main>
+<footer style="text-align:center; padding:1rem; font-size:0.9rem; color:#555; border-top:1px solid #ddd;">&copy; 2025 <strong style="color:#222;">AMI Snapshot Manager</strong> &mdash; Built with <span style="color:#e25555;">&#10084;&#65039;</span> by <strong style="color:#333;">Secsys</strong> | <a href="https://secsys.pages.dev" target="_blank" style="color:#007acc; text-decoration:none;">Blog</a> | <a href="https://github.com/s3csys" target="_blank" style="color:#007acc; text-decoration:none;">GitHub</a></footer>
+  <script>
+  // Auto-hide popups after 2.5 seconds
+  setTimeout(function() {
+    var popups = document.querySelectorAll('.flash-popup');
+    popups.forEach(function(popup) {
+      popup.style.transition = "opacity 0.5s";
+      popup.style.opacity = 0;
+      setTimeout(function() {
+        if (popup.parentNode) {
+          popup.parentNode.removeChild(popup);
+        }
+      }, 500);
+    });
+  }, 2500);
+  </script>
+
+<script>
+function toggleNotifDropdown() {
+  var dropdown = document.getElementById('notifDropdown');
+  dropdown.style.display = dropdown.style.display === 'block' ? 'none' : 'block';
+}
+// Optional: Hide dropdown when clicking outside
+document.addEventListener('click', function(event) {
+  var notifBtn = document.getElementById('notifBtn');
+  var notifDropdown = document.getElementById('notifDropdown');
+  if (notifDropdown && !notifBtn.contains(event.target) && !notifDropdown.contains(event.target)) {
+    notifDropdown.style.display = 'none';
+  }
+});
+</script>
+
+<!-------- flash pop up notification --------->
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    <script>
+      window.flashMessages = {{ messages|tojson }};
+    </script>
+  {% endif %}
+{% endwith %}
+
+<!-------- flash pop up notification --------->
+
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  if (window.flashMessages && window.flashMessages.length > 0) {
+    window.flashMessages.forEach(function(msg) {
+      Swal.fire({
+        icon: msg[0] === 'success' ? 'success' : (msg[0] === 'error' ? 'error' : 'info'),
+        title: msg[0].charAt(0).toUpperCase() + msg[0].slice(1),
+        text: msg[1],
+        confirmButtonColor: '#2563eb',
+        timer: 1800,
+        showConfirmButton: false
+      });
+    });
+  }
+});
+</script>
+
+<!-------- flash pop up notification --------->
+</body>
+</html>

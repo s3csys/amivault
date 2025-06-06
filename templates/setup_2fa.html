@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="content" style="max-width:400px;margin:2rem auto;">
+  <h2 style="text-align:center;color:#4f8cff;">Set Up Two-Factor Authentication</h2>
+  <div class="card" style="margin-top:2rem;">
+    <p>Scan this QR code with your authenticator app (Google Authenticator, Authy, etc.):</p>
+    <div style="text-align:center;">
+      <img src="data:image/png;base64,{{ qr_b64 }}" alt="2FA QR Code" style="width:200px;height:200px;">
+    </div>
+    <p>Or enter this code manually: <b>{{ secret }}</b></p>
+    <form method="POST">
+      <label for="code">Enter the 6-digit code from your app:</label>
+      <input type="text" id="code" name="code" placeholder="123456" required autofocus>
+      <button type="submit">Enable 2FA</button>
+    </form>
+  </div>
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <ul class="flashes">
+        {% for category, message in messages %}
+          <li class="flash-{{ category }}">{{ message }}</li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+  {% endwith %}
+</div>
+{% endblock %}
