@@ -178,55 +178,58 @@ document.addEventListener('DOMContentLoaded', function() {
 <div class="section" style="margin-top:2.5rem;">
   <div class="card user-list-card">
     <h3>All Users</h3>
-    <ul class="user-list">
-      {% for user in users %}
-      <li>
-        <span>
-          <strong>{{ user.username }}</strong> ({{ user.email }})
-          {% if user.is_admin %}
-            <span style="color:#4f8cff;font-weight:bold;">[Admin]</span>
-          {% endif %}
-          {% if user.two_factor_enabled %}
-            <span style="color:green;">2FA Enabled</span>
-          {% endif %}            
-        </span>
-        <form method="POST" action="{{ url_for('delete_user') }}" class="delete-user-form" style="display:inline;">
-          <input type="hidden" name="username" value="{{ user.username }}">
-          <button type="submit" class="danger"
-            {% if user.username == current_user.username %}disabled title="You cannot delete your own account"{% endif %}>
-            Delete
-          </button>
-        </form>
-
-        <script>
-        document.addEventListener('DOMContentLoaded', function() {
-          // Confirmation for delete-user forms
-          document.querySelectorAll('.delete-user-form').forEach(function(form) {
-            form.addEventListener('submit', function(e) {
-              e.preventDefault();
-              Swal.fire({
-                title: 'Are you sure?',
-                text: "This user will be permanently deleted.",
-                icon: 'warning',
-                showCancelButton: true,
-                confirmButtonColor: '#dc2626',
-                cancelButtonColor: '#3085d6',
-                confirmButtonText: 'Yes, delete!',
-                reverseButtons: true
-              }).then((result) => {
-                if (result.isConfirmed) {
-                  form.submit();
-                }
-              });
-            });
-          });
-        });
-        </script>
-      </li>
-      {% endfor %}
-    </ul>
+    <div style="max-height:240px; overflow-y:auto; padding-right:8px;">
+      <ul class="user-list">
+        {% for user in users %}
+        <li>
+          <span>
+            <strong>{{ user.username }}</strong> ({{ user.email }})
+            {% if user.is_admin %}
+              <span style="color:#4f8cff;font-weight:bold;">[Admin]</span>
+            {% endif %}
+            {% if user.two_factor_enabled %}
+              <span style="color:green;">2FA Enabled</span>
+            {% endif %}            
+          </span>
+          <form method="POST" action="{{ url_for('delete_user') }}" class="delete-user-form" style="display:inline;">
+            <input type="hidden" name="username" value="{{ user.username }}">
+            <button type="submit" class="danger"
+              {% if user.username == current_user.username %}disabled title="You cannot delete your own account"{% endif %}>
+              Delete
+            </button>
+          </form>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
   </div>
 </div>
+
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  document.querySelectorAll('.delete-user-form').forEach(function(form) {
+    form.addEventListener('submit', function(e) {
+      e.preventDefault();
+      Swal.fire({
+        title: 'Are you sure?',
+        text: "This user will be permanently deleted.",
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#dc2626',
+        cancelButtonColor: '#3085d6',
+        confirmButtonText: 'Yes, delete!',
+        reverseButtons: true
+      }).then((result) => {
+        if (result.isConfirmed) {
+          form.submit();
+        }
+      });
+    });
+  });
+});
+</script>
+<!-- User List -->
 
 <!-- Danger Zone -->
 <div class="card" style="border:2px solid #ff3b30;">
