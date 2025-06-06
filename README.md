@@ -56,6 +56,8 @@ cd amivault
 
 2. **Install Dependencies**
 ```bash
+python3 -m venv amivault
+source amivault/bin/activate
 pip install -r requirements.txt
 ```
 
