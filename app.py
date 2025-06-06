@@ -995,7 +995,7 @@ def delete_ami(ami_id):
     instance = Instance.query.filter_by(instance_id=backup.instance_id).first()
     if not instance:
         flash("Instance record not found.", "danger")
-        return redirect(url_for('bashboard'))
+        return redirect(url_for('dashboard'))
 
     try:
         ec2 = boto3.client(
