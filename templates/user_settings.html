@@ -231,11 +231,135 @@ document.addEventListener('DOMContentLoaded', function() {
 <!-- Danger Zone -->
 <div class="card" style="border:2px solid #ff3b30;">
   <h3 style="color:#ff3b30;">Danger Zone</h3>
-  <form method="POST" action="{{ url_for('reinit_db') }}" onsubmit="return confirm('Are you sure you want to reinitialize the database? This will DELETE ALL DATA and cannot be undone!');">
-    <button type="submit" style="background:#ff3b30;">Reinitialize Database</button>
-    <p style="color:#b71c1c;font-size:0.95em;margin-top:1em;">This will remove <b>all users, instances, and backups</b> and create a new empty database.</p>
-  </form>
+  <button id="reinitDbBtn" style="background:#ff3b30; color:#fff; font-weight:bold; border:none; padding:0.6em 1.3em; border-radius:4px; cursor:pointer;">
+    Reinitialize Database
+  </button>
+  <p style="color:#b71c1c;font-size:0.95em;margin-top:1em;">
+    This will remove <b>all users, instances, and backups</b> and create a new empty database.
+  </p>
 </div>
+
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const reinitBtn = document.getElementById('reinitDbBtn');
+  if (reinitBtn) {
+    reinitBtn.onclick = function() {
+      Swal.fire({
+        title: 'Are you sure?',
+        html: `
+          <p style="color:#d33;font-weight:bold;">This will <b>DELETE ALL DATA</b> and cannot be undone!</p>
+          <p>Type <b>REINIT</b> to confirm.</p>
+          <input id="swalReinitInput" class="swal2-input" placeholder="Type REINIT to enable" autocomplete="off" style="width:260px;">
+          <div style="text-align:left; margin:10px 0;">
+            <input type="checkbox" id="swalSetPass" style="vertical-align:middle;">
+            <label for="swalSetPass" style="vertical-align:middle; font-size:0.98em;">Set admin password manually</label>
+          </div>
+          <input id="swalAdminPass" class="swal2-input" type="password" placeholder="New admin password" style="display:none; width:260px;" autocomplete="new-password">
+          <div id="swalPassStrength" style="font-size:0.92em; color:#b71c1c; display:none;"></div>
+          <small style="display:block;margin-top:4px;">If unchecked, a secure random password will be generated.</small>
+        `,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Reinitialize',
+        confirmButtonColor: '#d33',
+        cancelButtonColor: '#3085d6',
+        focusConfirm: false,
+        didOpen: () => {
+          const setPass = document.getElementById('swalSetPass');
+          const passInput = document.getElementById('swalAdminPass');
+          const passStrength = document.getElementById('swalPassStrength');
+          setPass.addEventListener('change', function() {
+            if (this.checked) {
+              passInput.style.display = '';
+              passStrength.style.display = '';
+            } else {
+              passInput.style.display = 'none';
+              passStrength.style.display = 'none';
+              passInput.value = '';
+              passStrength.textContent = '';
+            }
+          });
+          passInput.addEventListener('input', function() {
+            const val = passInput.value;
+            if (val.length < 8) {
+              passStrength.textContent = 'Password too short (min 8 chars)';
+            } else if (!/[A-Z]/.test(val) || !/[a-z]/.test(val) || !/[0-9]/.test(val)) {
+              passStrength.textContent = 'Use upper, lower, and numbers';
+            } else {
+              passStrength.textContent = '';
+            }
+          });
+        },
+        preConfirm: () => {
+          const input = document.getElementById('swalReinitInput').value.trim();
+          const setPass = document.getElementById('swalSetPass').checked;
+          const adminPass = document.getElementById('swalAdminPass').value.trim();
+          const passStrength = document.getElementById('swalPassStrength').textContent;
+          if (input !== 'REINIT') {
+            Swal.showValidationMessage('You must type REINIT to proceed.');
+            return false;
+          }
+          if (setPass) {
+            if (adminPass.length < 8 || passStrength) {
+              Swal.showValidationMessage('Password must be at least 8 characters, contain upper, lower, and number.');
+              return false;
+            }
+            return { password: adminPass };
+          }
+          return { password: '' }; // Backend generates random password
+        }
+      }).then((result) => {
+        if (result.isConfirmed) {
+          fetch('/reinit-db', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password: result.value.password })
+          })
+          .then(res => res.json())
+          .then(data => {
+            if (data.status === 'success') {
+              Swal.fire({
+                title: 'Database Reinitialized!',
+                html: `
+                  <b>Admin Username:</b> <code>${data.username}</code><br>
+                  <b>Password:</b> 
+                  <input type="password" id="swalShowPass" value="${data.password}" readonly style="border:none;background:transparent;font-weight:bold;width:260px;">
+                  <button type="button" id="togglePass" style="margin-left:8px;">Show</button><br>
+                  <b>Email:</b> <code>${data.email}</code><br><br>
+                  <span style="color:#16a34a;">${data.message}</span>
+                `,
+                icon: 'success',
+                confirmButtonText: 'OK',
+                didOpen: () => {
+                  const btn = document.getElementById('togglePass');
+                  const passInput = document.getElementById('swalShowPass');
+                  btn.onclick = function() {
+                    if (passInput.type === 'password') {
+                      passInput.type = 'text';
+                      btn.textContent = 'Hide';
+                    } else {
+                      passInput.type = 'password';
+                      btn.textContent = 'Show';
+                    }
+                  };
+                }
+              }).then(() => {
+                window.location.reload();
+              });
+            } else {
+              Swal.fire('Error', data.message || 'Database reinit failed.', 'error');
+            }
+          });
+        }
+      });
+    };
+  }
+});
+</script>
+
+
+
 
 </div>
 {% endblock %}

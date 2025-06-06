@@ -1,11 +1,5 @@
-import pyotp
-import qrcode
-import io
-import base64
-import boto3
-import pytz
-import os
-import csv
+import pyotp, qrcode, io, base64, boto3, pytz, os, csv, secrets
+
 
 from flask import Flask, render_template, request, redirect, url_for, flash, session, send_file, jsonify, make_response
 from flask_sqlalchemy import SQLAlchemy
@@ -52,7 +46,7 @@ class Instance(db.Model):
 class BackupSettings(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     retention_days = db.Column(db.Integer, default=7)
-    backup_frequency = db.Column(db.String(64), default="5")
+    backup_frequency = db.Column(db.String(64), default="0 * * * *")
     instance_id = db.Column(db.String(64), nullable=False)
     instance_name = db.Column(db.String(128))
     ami_id = db.Column(db.String(64))
@@ -280,40 +274,47 @@ def update_profile():
 
 @app.route('/reinit-db', methods=['POST'])
 def reinit_db():
+    # Ensure user is logged in
     if 'username' not in session:
-        flash("You must be logged in.", "danger")
-        return redirect(url_for('login'))
+        return jsonify({'status': 'error', 'message': "You must be logged in."}), 403
 
     # Only allow admin to perform this action
     user = User.query.filter_by(username=session['username']).first()
     if not user or user.username != 'admin':
-        flash("Only admin can reinitialize the database.", "danger")
-        return redirect(url_for('user_settings'))
+        return jsonify({'status': 'error', 'message': "Only admin can reinitialize the database."}), 403
+
+    # Get password from AJAX or generate a secure one
+    data = request.get_json()
+    password = data.get('password')
+    if not password:
+        password = secrets.token_urlsafe(16)
+
+    username = "admin"
+    email = "admin@example.com"
 
     # Drop all tables and recreate them
     db.drop_all()
     db.create_all()
 
-    # Create default admin user
-    username = "admin"
-    password = "admin123"  # Change in production!
-    email = "admin@example.com"
-
-    # Check if the user already exists (should not, but for safety)
+    # Remove existing admin user if present
     existing = User.query.filter_by(username=username).first()
     if existing:
-        flash(f"User '{username}' already exists.", "info")
-    else:
-        user = User(username=username, email=email)
-        user.set_password(password)
-        # If you have a profile_pic_url field, add it here:
-        # user.profile_pic_url = "https://example.com/images/admin.png"
-        db.session.add(user)
+        db.session.delete(existing)
         db.session.commit()
-        flash(f"User '{username}' added with email '{email}'.", "success")
 
-    flash("Database reinitialized. Default admin user recreated.", "success")
-    return redirect(url_for('user_settings'))
+    # Create default admin user
+    user = User(username=username, email=email)
+    user.set_password(password)
+    db.session.add(user)
+    db.session.commit()
+
+    return jsonify({
+        'status': 'success',
+        'username': username,
+        'password': password,
+        'email': email,
+        'message': "Database reinitialized. Default admin user recreated."
+    })
 
 
 @app.route('/toggle-2fa', methods=['POST'])
