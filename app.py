@@ -113,34 +113,46 @@ def login():
         pwd = request.form['password']
         user = User.query.filter_by(username=uname).first()
         if user and user.check_password(pwd):
-            # Enforce 2FA if enabled and secret is set
             if user.two_factor_enabled and user.two_factor_secret:
                 session['pending_2fa_user'] = user.username
-                return redirect(url_for('two_factor'))
-            # Normal login if 2FA not enabled
+                # If AJAX, respond with JSON to trigger 2FA popup
+                if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                    return jsonify({'require_2fa': True})
+                # Fallback for non-AJAX
+                return render_template('login.html', require_2fa=True)
+            # Normal login
             session['username'] = user.username
-            return redirect(url_for('dashboard'))
+            if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                return jsonify({'success': True, 'redirect': url_for('dashboard')})
+            else:
+                return redirect(url_for('dashboard'))  # <-- Fix: redirect for normal POST
         else:
-            flash("Invalid credentials", "danger")
-            return render_template('login.html')
+            if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                return jsonify({'success': False, 'error': 'Invalid credentials'})
+            else:
+                flash("Invalid credentials", "danger")
+                return render_template('login.html')
     return render_template('login.html')
 
 
-@app.route('/two-factor', methods=['GET', 'POST'])
-def two_factor():
-    if 'pending_2fa_user' not in session:
-        return redirect(url_for('login'))
-    user = User.query.filter_by(username=session['pending_2fa_user']).first()
-    if request.method == 'POST':
-        code = request.form['code']
-        totp = pyotp.TOTP(user.two_factor_secret)
-        if totp.verify(code):
-            session['username'] = user.username
-            session.pop('pending_2fa_user')
-            return redirect(url_for('dashboard'))
-        else:
-            flash('Invalid 2FA code', 'danger')
-    return render_template('two_factor.html')
+
+@app.route('/login_2fa', methods=['POST'])
+def login_2fa():
+    pending_user = session.get('pending_2fa_user')
+    if not pending_user:
+        return jsonify({'success': False, 'error': 'No 2FA session found. Please login again.'})
+    user = User.query.filter_by(username=pending_user).first()
+    if not user or not user.two_factor_enabled or not user.two_factor_secret:
+        return jsonify({'success': False, 'error': '2FA not enabled for this user.'})
+    code = request.form.get('code', '').strip()
+    totp = pyotp.TOTP(user.two_factor_secret)
+    if totp.verify(code):
+        session.pop('pending_2fa_user')
+        session['username'] = user.username
+        return jsonify({'success': True, 'redirect': url_for('dashboard')})
+    else:
+        return jsonify({'success': False, 'error': 'Invalid 2FA code. Please try again.'})
+
 
 @app.route('/setup-2fa', methods=['GET', 'POST'])
 def setup_2fa():
