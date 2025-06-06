@@ -1,0 +1,67 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+env/
+ami/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.idea/
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Flask instance folder
+instance/
+.webassets-cache
+
+# Pytest
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Environment variables & secrets
+.env
+.env.*
+*.env
+
+# Logs
+*.log
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+
+# SQLite database files
+*.sqlite3
+*.db
+
+# VS Code
+.vscode/
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# Pillow image cache
+__pillow_cache__/
+
+# Ignore migrations if using Flask-Migrate (optional)
+migrations/
+
+# Ignore compiled files
+*.pyo
+*.pyd
+
+# Ignore pip wheel files
+*.whl

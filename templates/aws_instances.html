@@ -1,0 +1,311 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="content">
+  <h2 style="text-align:center; color:#4f8cff; margin-bottom:2rem;">AWS Instance Management</h2>
+  <!-- Add Instance -->
+  <div class="section" style="margin-bottom:2.5rem;">
+    <div style="background:#f9fafb; border-radius:10px; box-shadow:0 2px 12px rgba(79,140,255,0.06); padding:2rem;">
+      <h3 style="margin-top:0; color:#4f8cff;">Add New Instance</h3>
+      <form method="POST" action="{{ url_for('add_instance') }}" class="instance-form">
+        <label>Instance ID</label>
+        <input type="text" id="instance_id" name="instance_id" placeholder="Instance ID" required>
+        
+        <label>AWS Region</label>
+        <select id="region_select_add" name="region" onchange="toggleCustomRegion('region_select_add', 'custom_region_add')" required>
+          <option value="">Select Region</option>
+          <option value="us-east-1">US East (N. Virginia)</option>
+          <option value="us-east-2">US East (Ohio)</option>
+          <option value="us-west-1">US West (N. California)</option>
+          <option value="us-west-2">US West (Oregon)</option>
+          <option value="af-south-1">Africa (Cape Town)</option>
+          <option value="ap-east-1">Asia Pacific (Hong Kong)</option>
+          <option value="ap-south-1">Asia Pacific (Mumbai)</option>
+          <option value="ap-northeast-3">Asia Pacific (Osaka)</option>
+          <option value="ap-northeast-2">Asia Pacific (Seoul)</option>
+          <option value="ap-southeast-1">Asia Pacific (Singapore)</option>
+          <option value="ap-southeast-2">Asia Pacific (Sydney)</option>
+          <option value="ap-northeast-1">Asia Pacific (Tokyo)</option>
+          <option value="ca-central-1">Canada (Central)</option>
+          <option value="eu-central-1">Europe (Frankfurt)</option>
+          <option value="eu-west-1">Europe (Ireland)</option>
+          <option value="eu-west-2">Europe (London)</option>
+          <option value="eu-south-1">Europe (Milan)</option>
+          <option value="eu-west-3">Europe (Paris)</option>
+          <option value="eu-north-1">Europe (Stockholm)</option>
+          <option value="me-south-1">Middle East (Bahrain)</option>
+          <option value="sa-east-1">South America (São Paulo)</option>
+          <option value="custom">Custom</option>
+        </select>
+        <input
+          type="text"
+          id="custom_region_add"
+          name="custom_region"
+          placeholder="Enter custom region (e.g. us-gov-west-1)"
+          style="display:none; margin-left:10px;"
+        >
+
+        <label>AWS Access Key</label>
+        <input type="password" id="access_key" name="access_key" placeholder="AWS Access Key" required>
+
+        <label>AWS Secret Key</label>
+        <input type="password" id="secret_key" name="secret_key" placeholder="AWS Secret Key" required>
+
+        <label>Instance Name (Optional)</label>
+        <div style="display: flex; gap: 20px; align-items: center;">
+            <input type="text" id="instance_name" name="instance_name" placeholder="Instance Name" required style="flex: 1;">
+            <button type="button" class="small-check-btn" id="check-instance-btn">Check</button>
+        </div>
+        
+        <label>Backup Frequency</label>
+        <select id="backup_frequency_select_add" name="backup_frequency" onchange="toggleCustomFreq('backup_frequency_select_add', 'custom_backup_frequency_add', 'customHelpTextAdd')" required>
+            <option value="*/5 * * * *">Every 5 Minutes</option>
+            <option value="*/15 * * * *">Every 15 Minutes</option>
+            <option value="*/30 * * * *">Every 30 Minutes</option>
+            <option value="0 * * * *">Hourly</option>
+            <option value="0 */6 * * *">Every 6 Hours</option>
+            <option value="0 */12 * * *">Every 12 Hours</option>
+            <option value="0 2 * * *">Daily (2 AM)</option>
+            <option value="0 0 * * *">Daily (12 AM)</option>
+            <option value="0 2 * * 0">Weekly (Sun 2 AM)</option>
+            <option value="0 3 * * 1">Weekly (Mon 3 AM)</option>
+            <option value="0 4 1 * *">Monthly (1st day, 4 AM)</option>
+            <option value="custom">Custom</option>
+        </select>
+        <input
+            type="text"
+            id="custom_backup_frequency_add"
+            name="custom_backup_frequency"
+            placeholder="e.g. 30 1 * * * (Daily at 1:30 AM)"
+            style="display:none; margin-left:10px;"
+        >
+        <div id="customHelpTextAdd" style="font-size: 0.85em; color: #555; margin-top: 2px; display:none;">
+            Enter a valid cron expression, e.g. <code>30 1 * * *</code> for daily at 1:30 AM.
+        </div>
+        <label>Retention Days</label>
+        <input type="number" name="retention_days" min="1" value="7" required>
+        <button type="submit">Add Instance</button>
+      </form>
+    </div>
+  </div>
+
+
+  <!-- List Instances -->
+  {% if instances %}
+  <div class="section">
+    <div style="background:#f9fafb; border-radius:10px; box-shadow:0 2px 12px rgba(79,140,255,0.06); padding:2rem;">
+      <h3 style="margin-top:0; color:#4f8cff;">Your AWS Instances</h3>
+      <div style="overflow-x:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>Instance ID</th>
+              <th>Name</th>
+              <th>Region</th>
+              <th>Backup Frequency</th>
+              <th>Retention Days</th>
+              <th>Update</th>
+              <th>Manual Backup</th>
+              <th>Delete</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for inst in instances %}
+            <tr>
+              <form method="POST" action="{{ url_for('update_instance', instance_id=inst.instance_id) }}">
+                <td>{{ inst.instance_id }}</td>
+                <td><input type="text" name="instance_name" value="{{ inst.instance_name }}" required></td>
+                <td>
+                  {{ inst.region }}
+                </td>
+                <td>
+                  <select id="backup_frequency_select_{{ loop.index }}" name="backup_frequency" onchange="toggleCustomFreq('backup_frequency_select_{{ loop.index }}', 'custom_backup_frequency_{{ loop.index }}', 'customHelpText_{{ loop.index }}')" required>
+                    <option value="*/5 * * * *" {% if inst.backup_frequency == '*/5 * * * *' %}selected{% endif %}>Every 5 Minutes</option>
+                    <option value="*/15 * * * *" {% if inst.backup_frequency == '*/15 * * * *' %}selected{% endif %}>Every 15 Minutes</option>
+                    <option value="*/30 * * * *" {% if inst.backup_frequency == '*/30 * * * *' %}selected{% endif %}>Every 30 Minutes</option>
+                    <option value="0 * * * *" {% if inst.backup_frequency == '0 * * * *' %}selected{% endif %}>Hourly</option>
+                    <option value="0 */6 * * *" {% if inst.backup_frequency == '0 */6 * * *' %}selected{% endif %}>Every 6 Hours</option>
+                    <option value="0 */12 * * *" {% if inst.backup_frequency == '0 */12 * * *' %}selected{% endif %}>Every 12 Hours</option>
+                    <option value="0 2 * * *" {% if inst.backup_frequency == '0 2 * * *' %}selected{% endif %}>Daily (2 AM)</option>
+                    <option value="0 0 * * *" {% if inst.backup_frequency == '0 0 * * *' %}selected{% endif %}>Daily (12 AM)</option>
+                    <option value="0 2 * * 0" {% if inst.backup_frequency == '0 2 * * 0' %}selected{% endif %}>Weekly (Sun 2 AM)</option>
+                    <option value="0 3 * * 1" {% if inst.backup_frequency == '0 3 * * 1' %}selected{% endif %}>Weekly (Mon 3 AM)</option>
+                    <option value="0 4 1 * *" {% if inst.backup_frequency == '0 4 1 * *' %}selected{% endif %}>Monthly (1st day, 4 AM)</option>
+                    <option value="custom" {% if inst.backup_frequency not in [
+                        '*/5 * * * *','*/15 * * * *','*/30 * * * *','0 * * * *','0 */6 * * *','0 */12 * * *',
+                        '0 2 * * *','0 0 * * *','0 2 * * 0','0 3 * * 1','0 4 1 * *'
+                    ] %}selected{% endif %}>Custom</option>
+                  </select>
+                  <input
+                    type="text"
+                    id="custom_backup_frequency_{{ loop.index }}"
+                    name="custom_backup_frequency"
+                    placeholder="e.g. 30 1 * * * (Daily at 1:30 AM)"
+                    style="margin-left:10px; {% if inst.backup_frequency not in [
+                        '*/5 * * * *','*/15 * * * *','*/30 * * * *','0 * * * *','0 */6 * * *','0 */12 * * *',
+                        '0 2 * * *','0 0 * * *','0 2 * * 0','0 3 * * 1','0 4 1 * *'
+                    ] %}display:inline-block;{% else %}display:none;{% endif %}"
+                    value="{% if inst.backup_frequency not in [
+                        '*/5 * * * *','*/15 * * * *','*/30 * * * *','0 * * * *','0 */6 * * *','0 */12 * * *',
+                        '0 2 * * *','0 0 * * *','0 2 * * 0','0 3 * * 1','0 4 1 * *'
+                    ] %}{{ inst.backup_frequency }}{% endif %}"
+                  >
+                  <div id="customHelpText_{{ loop.index }}" style="font-size: 0.85em; color: #555; margin-top: 2px; {% if inst.backup_frequency not in [
+                        '*/5 * * * *','*/15 * * * *','*/30 * * * *','0 * * * *','0 */6 * * *','0 */12 * * *',
+                        '0 2 * * *','0 0 * * *','0 2 * * 0','0 3 * * 1','0 4 1 * *'
+                    ] %}display:block;{% else %}display:none;{% endif %}">
+                    Enter a valid cron expression, e.g. <code>30 1 * * *</code> for daily at 1:30 AM.
+                  </div>
+                </td>
+                <td><input type="number" name="retention_days" value="{{ inst.retention_days or 7 }}" min="1" required></td>
+                <td><button type="submit">Update</button></td>
+              </form>
+                <td>
+                  <form method="POST" action="{{ url_for('start_backup', instance_id=inst.instance_id) }}">
+                    <button type="submit" style="background:#22c55e; color:#fff; border:none;">Start Backup</button>
+                  </form>
+                </td>
+              <td>
+
+              <form method="POST" action="{{ url_for('delete_instance', instance_id=inst.instance_id) }}" class="delete-instance-form" style="display:inline;">
+                <button type="submit" class="action-btn action-danger" title="Delete Instance" style="background:#ff3b30; border:none;">
+                  Delete
+                </button>
+              </form>
+
+
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+<script>
+function toggleCustomFreq(selectElemId, customInputId, helpTextId) {
+    var selectElem = document.getElementById(selectElemId);
+    var customInput = document.getElementById(customInputId);
+    var helpText = document.getElementById(helpTextId);
+    if (selectElem.value === 'custom') {
+        customInput.style.display = 'inline-block';
+        customInput.required = true;
+        helpText.style.display = 'block';
+    } else {
+        customInput.style.display = 'none';
+        customInput.required = false;
+        customInput.value = '';
+        helpText.style.display = 'none';
+    }
+}
+function toggleCustomRegion(selectElemId, customInputId) {
+    var selectElem = document.getElementById(selectElemId);
+    var customInput = document.getElementById(customInputId);
+    if (selectElem.value === 'custom') {
+        customInput.style.display = 'inline-block';
+        customInput.required = true;
+    } else {
+        customInput.style.display = 'none';
+        customInput.required = false;
+        customInput.value = '';
+    }
+}
+</script>
+
+<!--########## check-instance-btn ########## -->
+<!-- Add this in your HTML, preferably before </body> -->
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    document.getElementById('check-instance-btn').onclick = function() {
+        const instanceId = document.getElementById('instance_id').value;
+        const accessKey = document.getElementById('access_key').value;
+        const secretKey = document.getElementById('secret_key').value;
+        let region = document.getElementById('region_select_add').value;
+        if (region === 'custom') {
+            region = document.getElementById('custom_region_add').value.trim();
+        }
+
+        if (!instanceId || !accessKey || !secretKey || !region) {
+            Swal.fire({
+                icon: 'warning',
+                title: 'Missing Fields',
+                text: 'Please enter the Instance ID, Access Key, Secret Key, and Region.',
+                confirmButtonColor: '#3085d6'
+            });
+            return;
+        }
+
+        fetch('{{ url_for("check_instance") }}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                instance_id: instanceId,
+                access_key: accessKey,
+                secret_key: secretKey,
+                region: region
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                document.getElementById('instance_name').value = data.instance_name;
+                Swal.fire({
+                    icon: 'success',
+                    title: 'Success',
+                    text: 'Instance found and name filled!',
+                    timer: 2000,
+                    showConfirmButton: false
+                });
+            } else {
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Error',
+                    html: 'Instance not found or not accessible.<br>' + (data.error || ''),
+                    confirmButtonColor: '#d33'
+                });
+            }
+        })
+        .catch(() => Swal.fire({
+            icon: 'error',
+            title: 'Error',
+            text: 'Error checking instance.',
+            confirmButtonColor: '#d33'
+        }));
+    };
+});
+</script>
+
+<!-------------- instance delete button-------------->
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  document.querySelectorAll('.delete-instance-form').forEach(function(form) {
+    form.addEventListener('submit', function(e) {
+      e.preventDefault();
+      Swal.fire({
+        icon: 'warning',
+        title: 'Delete Instance?',
+        text: 'Are you sure you want to delete this instance? This action cannot be undone.',
+        showCancelButton: true,
+        confirmButtonText: 'Yes, delete it!',
+        cancelButtonText: 'Cancel',
+        confirmButtonColor: '#d33',
+        cancelButtonColor: '#3085d6'
+      }).then((result) => {
+        if (result.isConfirmed) {
+          form.submit();
+        }
+      });
+    });
+  });
+});
+</script>
+<!-------------- instance delete button-------------->
+
+
+
+{% endblock %}
