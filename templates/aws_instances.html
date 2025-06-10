@@ -157,7 +157,8 @@
         
         <!-- Credential fields that will be shown/hidden based on selection -->
         <div id="credential_fields">
-          <label>AWS Region</label>
+
+          <!-- <label>AWS Region</label>
           <select id="region_select_add" name="region" onchange="toggleCustomRegion('region_select_add', 'custom_region_add')" required>
             <option value="">Select Region</option>
             <option value="us-east-1">US East (N. Virginia)</option>
@@ -195,7 +196,48 @@
           <input type="password" id="access_key" name="access_key" placeholder="AWS Access Key">
 
           <label>AWS Secret Key</label>
-          <input type="password" id="secret_key" name="secret_key" placeholder="AWS Secret Key">
+          <input type="password" id="secret_key" name="secret_key" placeholder="AWS Secret Key"> -->
+
+
+            <label>AWS Region</label>
+            <select id="region_select_add" name="region" onchange="toggleCustomRegion('region_select_add', 'custom_region_add')">
+                <option value="">Select Region</option>
+                <option value="us-east-1">US East (N. Virginia)</option>
+                <option value="us-east-2">US East (Ohio)</option>
+                <option value="us-west-1">US West (N. California)</option>
+                <option value="us-west-2">US West (Oregon)</option>
+                <option value="af-south-1">Africa (Cape Town)</option>
+                <option value="ap-east-1">Asia Pacific (Hong Kong)</option>
+                <option value="ap-south-1">Asia Pacific (Mumbai)</option>
+                <option value="ap-northeast-3">Asia Pacific (Osaka)</option>
+                <option value="ap-northeast-2">Asia Pacific (Seoul)</option>
+                <option value="ap-southeast-1">Asia Pacific (Singapore)</option>
+                <option value="ap-southeast-2">Asia Pacific (Sydney)</option>
+                <option value="ap-northeast-1">Asia Pacific (Tokyo)</option>
+                <option value="ca-central-1">Canada (Central)</option>
+                <option value="eu-central-1">Europe (Frankfurt)</option>
+                <option value="eu-west-1">Europe (Ireland)</option>
+                <option value="eu-west-2">Europe (London)</option>
+                <option value="eu-south-1">Europe (Milan)</option>
+                <option value="eu-west-3">Europe (Paris)</option>
+                <option value="eu-north-1">Europe (Stockholm)</option>
+                <option value="me-south-1">Middle East (Bahrain)</option>
+                <option value="sa-east-1">South America (São Paulo)</option>
+                <option value="custom">Custom</option>
+            </select>
+            <input
+                type="text"
+                id="custom_region_add"
+                name="custom_region"
+                placeholder="Enter custom region (e.g. us-gov-west-1)"
+                style="display:none; margin-left:10px;"
+            >
+        
+            <label>AWS Access Key</label>
+            <input type="password" id="access_key" name="access_key" placeholder="AWS Access Key">
+        
+            <label>AWS Secret Key</label>
+            <input type="password" id="secret_key" name="secret_key" placeholder="AWS Secret Key">
           
           <!-- Option to save credentials -->
           <div class="checkbox-container" style="margin-top:10px;">
@@ -375,19 +417,53 @@ function toggleCustomFreq(selectId, customInputId, helpTextId) {
 }
 
 // Function to toggle credential fields
+// function toggleCredentialFields() {
+//     var credentialSelect = document.getElementById('aws_credential_id');
+//     var credentialFields = document.getElementById('credential_fields');
+//     var saveCredentialsContainer = document.getElementById('save_credentials').parentElement;
+    
+//     if (credentialSelect.value === 'new' || credentialSelect.value === '') {
+//         // Show credential fields for new credentials
+//         credentialFields.style.display = 'block';
+        
+//         // For new credentials, enable the fields
+//         document.getElementById('region_select_add').disabled = false;
+//         document.getElementById('access_key').disabled = false;
+//         document.getElementById('secret_key').disabled = false;
+        
+//         // Only show save option for new credentials
+//         if (credentialSelect.value === 'new') {
+//             saveCredentialsContainer.style.display = 'block';
+//         } else {
+//             saveCredentialsContainer.style.display = 'none';
+//         }
+//     } else {
+//         // Hide credential fields when using saved credentials
+//         credentialFields.style.display = 'none';
+//     }
+// }
+
 function toggleCredentialFields() {
     var credentialSelect = document.getElementById('aws_credential_id');
     var credentialFields = document.getElementById('credential_fields');
     var saveCredentialsContainer = document.getElementById('save_credentials').parentElement;
     
+    // Get the input fields
+    var regionSelect = document.getElementById('region_select_add');
+    var accessKeyInput = document.getElementById('access_key');
+    var secretKeyInput = document.getElementById('secret_key');
+    
     if (credentialSelect.value === 'new' || credentialSelect.value === '') {
         // Show credential fields for new credentials
         credentialFields.style.display = 'block';
         
-        // For new credentials, enable the fields
-        document.getElementById('region_select_add').disabled = false;
-        document.getElementById('access_key').disabled = false;
-        document.getElementById('secret_key').disabled = false;
+        // For new credentials, enable the fields and make them required
+        regionSelect.disabled = false;
+        accessKeyInput.disabled = false;
+        secretKeyInput.disabled = false;
+        regionSelect.required = true;
+        accessKeyInput.required = true;
+        secretKeyInput.required = true;
         
         // Only show save option for new credentials
         if (credentialSelect.value === 'new') {
@@ -398,6 +474,14 @@ function toggleCredentialFields() {
     } else {
         // Hide credential fields when using saved credentials
         credentialFields.style.display = 'none';
+        
+        // Disable and make fields not required when using saved credentials
+        regionSelect.disabled = true;
+        accessKeyInput.disabled = true;
+        secretKeyInput.disabled = true;
+        regionSelect.required = false;
+        accessKeyInput.required = false;
+        secretKeyInput.required = false;
     }
 }
 

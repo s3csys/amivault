@@ -1354,7 +1354,8 @@ def delete_aws_credential(credential_id):
         return redirect(url_for('login'))
     
     try:
-        credential = AWSCredential.query.get(credential_id)
+        # credential = AWSCredential.query.get(credential_id)
+        credential = db.session.get(AWSCredential, credential_id)
         if not credential:
             flash("AWS credential not found", "danger")
             return redirect(url_for('aws_instances'))
@@ -1382,7 +1383,8 @@ def delete_aws_credential_ajax(credential_id):
         return jsonify({'success': False, 'error': 'Not authenticated'})
     
     try:
-        credential = AWSCredential.query.get(credential_id)
+        # credential = AWSCredential.query.get(credential_id)
+        credential = db.session.get(AWSCredential, credential_id)
         if not credential:
             return jsonify({'success': False, 'error': 'AWS credential not found'})
         
@@ -1444,7 +1446,8 @@ def aws_instances():
             'total_backups': Backup.query.filter_by(instance_id=instance.instance_id).count(),
             'successful_backups': Backup.query.filter_by(instance_id=instance.instance_id, status='Success').count(),
             'failed_backups': Backup.query.filter_by(instance_id=instance.instance_id, status='Failed').count(),
-            'last_backup': Backup.query.filter_by(instance_id=instance.instance_id).order_by(Backup.timestamp.desc()).first()
+            # 'last_backup': Backup.query.filter_by(instance_id=instance.instance_id).order_by(Backup.timestamp.desc()).first()
+            'last_backup': Backup.query.filter_by(instance_id=instance.instance_id).order_by(Backup.created_at.desc()).first()            
         }
         instance_stats[instance.instance_id] = stats
     
@@ -1459,7 +1462,6 @@ def aws_instances():
                          current_region=region_filter,
                          search_query=search_query,
                          aws_credentials=aws_credentials)
-
 
 @app.route('/add-instance', methods=['GET', 'POST'])
 def add_instance():
@@ -2799,7 +2801,9 @@ def get_credential_details(credential_id):
         return jsonify({'success': False, 'error': 'Not authenticated'}), 401
     
     try:
-        credential = AWSCredential.query.get(credential_id)
+        # credential = AWSCredential.query.get(credential_id)
+        # credential = AWSCredential.query.filter_by(id=credential_id, user_id=session['user_id']).first()
+        credential = db.session.get(AWSCredential, credential_id)
         if not credential:
             return jsonify({'success': False, 'error': 'Credential not found'}), 404
         
@@ -3330,8 +3334,12 @@ def check_instance():
     region = data.get('region', '').strip()
     
     # Check if using saved credentials
-    credential_id = data.get('credential_id')
+    credential_id = data.get('credential_id')  # Move this line up before using credential_id
     if credential_id:
+        # Look up the saved credential
+        credential = db.session.get(AWSCredential, credential_id)
+        if not credential:
+            return jsonify({'success': False, 'error': 'Saved credential not found'}), 404
         # Look up the saved credential
         credential = AWSCredential.query.get(credential_id)
         if not credential:
