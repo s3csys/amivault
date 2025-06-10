@@ -1475,22 +1475,42 @@ def add_instance():
             # Get form data
             instance_id = request.form.get('instance_id', '').strip()
             instance_name = request.form.get('instance_name', '').strip()
-            access_key = request.form.get('access_key', '').strip()
-            secret_key = request.form.get('secret_key', '').strip()
-            region = request.form.get('region', '').strip()
-            custom_region = request.form.get('custom_region', '').strip()
+            aws_credential_id = request.form.get('aws_credential_id', '').strip()
+            
+            # If using saved credentials, get them from the database
+            if aws_credential_id and aws_credential_id != 'new':
+                credential = AWSCredential.query.get(aws_credential_id)
+                if not credential:
+                    flash("Selected AWS credential not found", "danger")
+                    return render_template('aws_instances.html')
+                access_key = credential.access_key
+                secret_key = credential.secret_key
+                region = credential.region
+            else:
+                # Get credentials from form for new credentials
+                access_key = request.form.get('access_key', '').strip()
+                secret_key = request.form.get('secret_key', '').strip()
+                region = request.form.get('region', '').strip()
+                custom_region = request.form.get('custom_region', '').strip()
+                
+                # Handle custom region
+                if region == 'custom':
+                    region = custom_region
+            
             backup_frequency = request.form.get('backup_frequency', '').strip()
             custom_backup_frequency = request.form.get('custom_backup_frequency', '').strip()
             retention_days = request.form.get('retention_days', 7, type=int)
             
             # Validation
-            if not all([instance_id, instance_name, access_key, secret_key]):
-                flash("All required fields must be filled", "danger")
+            if not instance_id:
+                flash("Instance ID is required", "danger")
                 return render_template('aws_instances.html')
             
-            # Handle custom region
-            if region == 'custom':
-                region = custom_region
+            if not aws_credential_id or aws_credential_id == 'new':
+                if not all([access_key, secret_key, region]):
+                    flash("All credential fields must be filled when not using saved credentials", "danger")
+                    return render_template('aws_instances.html')
+            
             if not region:
                 flash("Region is required", "danger")
                 return render_template('aws_instances.html')
