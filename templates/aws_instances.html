@@ -2,6 +2,138 @@
 {% block content %}
 <div class="content">
   <h2 style="text-align:center; color:#4f8cff; margin-bottom:2rem;">AWS Instance Management</h2>
+  
+  <!-- AWS Credentials Management Section -->
+  <div class="section" style="margin-bottom:2.5rem;">
+    <div style="background:#f9fafb; border-radius:10px; box-shadow:0 2px 12px rgba(79,140,255,0.06); padding:2rem;">
+      <h3 style="margin-top:0; color:#4f8cff;">AWS Credentials Management</h3>
+      
+      <!-- Add New Credential Form -->
+      <form method="POST" action="{{ url_for('add_aws_credential') }}" class="credential-form">
+        <h4 style="color:#4f8cff; margin-top:0;">Add New Credential</h4>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px;">
+          <div>
+            <label>Credential Name</label>
+            <input type="text" name="name" placeholder="Enter a name for these credentials" required>
+          </div>
+          
+          <div>
+            <label>AWS Region</label>
+            <select id="region_select_cred" name="region" onchange="toggleCustomRegion('region_select_cred', 'custom_region_cred')" required>
+              <option value="">Select Region</option>
+              <option value="us-east-1">US East (N. Virginia)</option>
+              <option value="us-east-2">US East (Ohio)</option>
+              <option value="us-west-1">US West (N. California)</option>
+              <option value="us-west-2">US West (Oregon)</option>
+              <option value="af-south-1">Africa (Cape Town)</option>
+              <option value="ap-east-1">Asia Pacific (Hong Kong)</option>
+              <option value="ap-south-1">Asia Pacific (Mumbai)</option>
+              <option value="ap-northeast-3">Asia Pacific (Osaka)</option>
+              <option value="ap-northeast-2">Asia Pacific (Seoul)</option>
+              <option value="ap-southeast-1">Asia Pacific (Singapore)</option>
+              <option value="ap-southeast-2">Asia Pacific (Sydney)</option>
+              <option value="ap-northeast-1">Asia Pacific (Tokyo)</option>
+              <option value="ca-central-1">Canada (Central)</option>
+              <option value="eu-central-1">Europe (Frankfurt)</option>
+              <option value="eu-west-1">Europe (Ireland)</option>
+              <option value="eu-west-2">Europe (London)</option>
+              <option value="eu-south-1">Europe (Milan)</option>
+              <option value="eu-west-3">Europe (Paris)</option>
+              <option value="eu-north-1">Europe (Stockholm)</option>
+              <option value="me-south-1">Middle East (Bahrain)</option>
+              <option value="sa-east-1">South America (São Paulo)</option>
+              <option value="custom">Custom</option>
+            </select>
+            <input
+              type="text"
+              id="custom_region_cred"
+              name="custom_region"
+              placeholder="Enter custom region (e.g. us-gov-west-1)"
+              style="display:none; margin-top:10px;"
+            >
+          </div>
+          
+          <div>
+            <label>AWS Access Key</label>
+            <input type="password" name="access_key" placeholder="AWS Access Key" required>
+          </div>
+          
+          <div>
+            <label>AWS Secret Key</label>
+            <input type="password" name="secret_key" placeholder="AWS Secret Key" required>
+          </div>
+        </div>
+        
+        <button type="submit" style="margin-top:20px;">Add Credential</button>
+      </form>
+      
+      <!-- List Credentials -->
+      {% if aws_credentials %}
+      <div style="margin-top:30px;">
+        <h4 style="color:#4f8cff;">Your AWS Credentials</h4>
+        <div style="overflow-x:auto;">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Region</th>
+                <th>Access Key</th>
+                <th>Secret Key</th>
+                <th>Owner</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for cred in aws_credentials %}
+              <tr>
+                <td>{{ cred.name }}</td>
+                <td>{{ cred.region }}</td>
+                <td>
+                  {% if cred.user_id is none or (cred.user and cred.user.username == session['username']) or session['username'] == 'admin' %}
+                  <div class="password-field">
+                    <input type="password" value="{{ cred.access_key }}" readonly>
+                    <button type="button" class="toggle-password" onclick="togglePasswordVisibility(this)">
+                      <i class="fas fa-eye"></i>
+                    </button>
+                  </div>
+                  {% else %}
+                  <span>********</span>
+                  {% endif %}
+                </td>
+                <td>
+                  {% if cred.user_id is none or (cred.user and cred.user.username == session['username']) or session['username'] == 'admin' %}
+                  <div class="password-field">
+                    <input type="password" value="{{ cred.secret_key }}" readonly>
+                    <button type="button" class="toggle-password" onclick="togglePasswordVisibility(this)">
+                      <i class="fas fa-eye"></i>
+                    </button>
+                  </div>
+                  {% else %}
+                  <span>********</span>
+                  {% endif %}
+                </td>
+                <td>{{ cred.user.username if cred.user else 'System' }}</td>
+                <td>
+                  {% if cred.user_id is none or (cred.user and cred.user.username == session['username']) or session['username'] == 'admin' %}
+                  <form method="POST" action="{{ url_for('delete_aws_credential', credential_id=cred.id) }}" class="delete-credential-form" style="display:inline;">
+                    <button type="submit" class="action-btn action-danger" title="Delete Credential" style="background:#ff3b30; border:none;">
+                      Delete
+                    </button>
+                  </form>
+                  {% else %}
+                  <span class="text-muted">No Access</span>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  
   <!-- Add Instance -->
   <div class="section" style="margin-bottom:2.5rem;">
     <div style="background:#f9fafb; border-radius:10px; box-shadow:0 2px 12px rgba(79,140,255,0.06); padding:2rem;">
@@ -18,7 +150,7 @@
         <select id="aws_credential_id" name="aws_credential_id" onchange="toggleCredentialFields()">
           <option value="">-- Select Saved Credentials --</option>
           {% for cred in aws_credentials %}
-          <option value="{{ cred.id }}">{{ cred.name }} ({{ cred.region }})</option>
+          <option value="{{ cred.id }}">{{ cred.name }} ({{ cred.region }}){% if cred.user %} - {{ cred.user.username }}{% endif %}</option>
           {% endfor %}
           <option value="new">Add New Credentials</option>
         </select>
@@ -209,6 +341,7 @@
 
 <!-- JavaScript for the page -->
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://kit.fontawesome.com/a076d05399.js" crossorigin="anonymous"></script>
 <script>
 // Function to toggle custom region input field
 function toggleCustomRegion(selectId, customInputId) {
@@ -265,6 +398,22 @@ function toggleCredentialFields() {
     } else {
         // Hide credential fields when using saved credentials
         credentialFields.style.display = 'none';
+    }
+}
+
+// Function to toggle password visibility
+function togglePasswordVisibility(button) {
+    const input = button.previousElementSibling;
+    const icon = button.querySelector('i');
+    
+    if (input.type === 'password') {
+        input.type = 'text';
+        icon.classList.remove('fa-eye');
+        icon.classList.add('fa-eye-slash');
+    } else {
+        input.type = 'password';
+        icon.classList.remove('fa-eye-slash');
+        icon.classList.add('fa-eye');
     }
 }
 
@@ -370,6 +519,7 @@ $('#check-instance-btn').on('click', function() {
 
 // Delete instance confirmation
 document.addEventListener('DOMContentLoaded', function() {
+  // Delete instance confirmation
   document.querySelectorAll('.delete-instance-form').forEach(function(form) {
     form.addEventListener('submit', function(e) {
       e.preventDefault();
@@ -389,6 +539,62 @@ document.addEventListener('DOMContentLoaded', function() {
       });
     });
   });
+  
+  // Delete credential confirmation
+  document.querySelectorAll('.delete-credential-form').forEach(function(form) {
+    form.addEventListener('submit', function(e) {
+      e.preventDefault();
+      Swal.fire({
+        icon: 'warning',
+        title: 'Delete Credential?',
+        text: 'Are you sure you want to delete this AWS credential? This action cannot be undone.',
+        showCancelButton: true,
+        confirmButtonText: 'Yes, delete it!',
+        cancelButtonText: 'Cancel',
+        confirmButtonColor: '#d33',
+        cancelButtonColor: '#3085d6'
+      }).then((result) => {
+        if (result.isConfirmed) {
+          form.submit();
+        }
+      });
+    });
+  });
 });
 </script>
+
+<style>
+/* Styles for password fields with toggle button */
+.password-field {
+  display: flex;
+  align-items: center;
+  position: relative;
+}
+
+.password-field input {
+  flex: 1;
+  padding-right: 40px;
+}
+
+.toggle-password {
+  position: absolute;
+  right: 5px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #4f8cff;
+  padding: 5px;
+}
+
+.toggle-password:hover {
+  color: #2563eb;
+}
+
+/* Styles for credential form */
+.credential-form {
+  border-bottom: 1px solid #eee;
+  padding-bottom: 20px;
+  margin-bottom: 20px;
+}
+</style>
 {% endblock %}

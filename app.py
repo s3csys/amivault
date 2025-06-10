@@ -1,15 +1,36 @@
+# import pyotp, qrcode, io, base64, boto3, pytz, os, csv, secrets, logging, json
+# from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify, send_file, make_response
+# from dotenv import load_dotenv
+# from models import db, User, Instance, BackupSettings, Backup, AWSCredential
+# from datetime import datetime, timezone, timedelta, UTC
+# from flask_apscheduler import APScheduler
+# from io import StringIO
+# from botocore.exceptions import ClientError, NoCredentialsError
+
+
+# from flask import Flask, render_template, request, redirect, url_for, flash, session, send_file, jsonify, make_response
+# from flask_sqlalchemy import SQLAlchemy
+# from werkzeug.security import generate_password_hash, check_password_hash
+# from datetime import datetime, timezone, timedelta, UTC
+# from flask_apscheduler import APScheduler
+# from io import StringIO
+# from dotenv import load_dotenv
+
+# Remove this line
+# from flask_sqlalchemy import SQLAlchemy
+
+# Keep or add these imports
 import pyotp, qrcode, io, base64, boto3, pytz, os, csv, secrets, logging, json
 from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify, send_file, make_response
 from dotenv import load_dotenv
-from models import db, User, Instance, BackupSettings, Backup, AWSCredential
-
-# Load environment variables from .env file
-load_dotenv()
-
 from datetime import datetime, timezone, timedelta, UTC
 from flask_apscheduler import APScheduler
 from io import StringIO
 from botocore.exceptions import ClientError, NoCredentialsError
+from models import db, User, Instance, BackupSettings, Backup, AWSCredential
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -137,33 +158,6 @@ with app.app_context():
     except Exception as e:
         logger.error(f"Error during initialization: {e}")
 
-# import os
-# import logging
-# from datetime import datetime
-# from flask import Flask
-# from flask_sqlalchemy import SQLAlchemy
-# from flask_apscheduler import APScheduler
-# from dotenv import load_dotenv
-
-import pyotp, qrcode, io, base64, boto3, pytz, os, csv, secrets, logging
-
-from flask import Flask, render_template, request, redirect, url_for, flash, session, send_file, jsonify, make_response
-from flask_sqlalchemy import SQLAlchemy
-from werkzeug.security import generate_password_hash, check_password_hash
-from datetime import datetime, timezone, timedelta, UTC
-from flask_apscheduler import APScheduler
-from io import StringIO
-from dotenv import load_dotenv
-
-# Load environment variables
-load_dotenv()
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-app = Flask(__name__)
-
 # App configuration
 app.config.update(
     SECRET_KEY=os.environ.get('SECRET_KEY', 'your-secret-key-change-in-production'),
@@ -179,172 +173,172 @@ app.config.update(
 )
 
 # Initialize extensions
-db = SQLAlchemy(app)
-scheduler = APScheduler()
-scheduler.init_app(app)
+#  db = SQLAlchemy(app)
+# scheduler = APScheduler()
+# scheduler.init_app(app)
 
-# Models with extend_existing=True to avoid table redefinition errors
-class AWSCredential(db.Model):
-    __tablename__ = 'aws_credentials'
-    __table_args__ = {'extend_existing': True}
+# # Models with extend_existing=True to avoid table redefinition errors
+# class AWSCredential(db.Model):
+#     __tablename__ = 'aws_credentials'
+#     __table_args__ = {'extend_existing': True}
     
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), unique=True, nullable=False)
-    access_key = db.Column(db.String(100), nullable=False)
-    secret_key = db.Column(db.String(100), nullable=False)
-    region = db.Column(db.String(20), nullable=False)
-    created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), nullable=False)
-    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
+#     id = db.Column(db.Integer, primary_key=True)
+#     name = db.Column(db.String(100), unique=True, nullable=False)
+#     access_key = db.Column(db.String(100), nullable=False)
+#     secret_key = db.Column(db.String(100), nullable=False)
+#     region = db.Column(db.String(20), nullable=False)
+#     created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), nullable=False)
+#     updated_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
     
-    def __repr__(self):
-        return f'<AWSCredential {self.name}'
+#     def __repr__(self):
+#         return f'<AWSCredential {self.name}'
     
-    def validate_credentials(self):
-        """Validate AWS credentials by making a test API call"""
-        try:
-            # Create a boto3 session with the provided credentials
-            boto3_session = boto3.Session(
-                aws_access_key_id=self.access_key,
-                aws_secret_access_key=self.secret_key,
-                region_name=self.region
-            )
+#     def validate_credentials(self):
+#         """Validate AWS credentials by making a test API call"""
+#         try:
+#             # Create a boto3 session with the provided credentials
+#             boto3_session = boto3.Session(
+#                 aws_access_key_id=self.access_key,
+#                 aws_secret_access_key=self.secret_key,
+#                 region_name=self.region
+#             )
             
-            # Create EC2 client
-            ec2 = boto3_session.client('ec2')
+#             # Create EC2 client
+#             ec2 = boto3_session.client('ec2')
             
-            # Make a simple API call to test credentials
-            ec2.describe_regions()
+#             # Make a simple API call to test credentials
+#             ec2.describe_regions()
             
-            return True, "Credentials validated successfully"
+#             return True, "Credentials validated successfully"
             
-        except Exception as e:
-            return False, str(e)
+#         except Exception as e:
+#             return False, str(e)
 
-class Instance(db.Model):
-    __tablename__ = 'instances'
-    __table_args__ = {'extend_existing': True}
+# class Instance(db.Model):
+#     __tablename__ = 'instances'
+#     __table_args__ = {'extend_existing': True}
 
-    id = db.Column(db.Integer, primary_key=True)
-    instance_id = db.Column(db.String(50), unique=True, nullable=False, index=True)
-    instance_name = db.Column(db.String(100), nullable=False)
-    access_key = db.Column(db.String(100), nullable=False)
-    secret_key = db.Column(db.String(100), nullable=False)
-    region = db.Column(db.String(20), nullable=False)
-    backup_frequency = db.Column(db.String(64), nullable=False, default="0 2 * * *")  # Daily at 2 AM
-    retention_days = db.Column(db.Integer, nullable=False, default=7)
-    created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), nullable=False)
-    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
-    is_active = db.Column(db.Boolean, default=True, nullable=False)
-    scheduler_type = db.Column(db.String(20), nullable=False, default='python', server_default='python')  # 'python' or 'eventbridge'
+#     id = db.Column(db.Integer, primary_key=True)
+#     instance_id = db.Column(db.String(50), unique=True, nullable=False, index=True)
+#     instance_name = db.Column(db.String(100), nullable=False)
+#     access_key = db.Column(db.String(100), nullable=False)
+#     secret_key = db.Column(db.String(100), nullable=False)
+#     region = db.Column(db.String(20), nullable=False)
+#     backup_frequency = db.Column(db.String(64), nullable=False, default="0 2 * * *")  # Daily at 2 AM
+#     retention_days = db.Column(db.Integer, nullable=False, default=7)
+#     created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), nullable=False)
+#     updated_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
+#     is_active = db.Column(db.Boolean, default=True, nullable=False)
+#     scheduler_type = db.Column(db.String(20), nullable=False, default='python', server_default='python')  # 'python' or 'eventbridge'
 
-    backups = db.relationship('Backup', backref='instance_ref', lazy=True, cascade='all, delete-orphan')
+#     backups = db.relationship('Backup', backref='instance_ref', lazy=True, cascade='all, delete-orphan')
 
-    def __repr__(self):
-        return f'<Instance {self.instance_id}: {self.instance_name}>'
+#     def __repr__(self):
+#         return f'<Instance {self.instance_id}: {self.instance_name}>'
         
-    def validate_aws_credentials(self):
-        """Validate AWS credentials by making a test API call"""
-        try:
-            # Create a boto3 session with the provided credentials
-            boto3_session = boto3.Session(
-                aws_access_key_id=self.access_key,
-                aws_secret_access_key=self.secret_key,
-                region_name=self.region
-            )
+#     def validate_aws_credentials(self):
+#         """Validate AWS credentials by making a test API call"""
+#         try:
+#             # Create a boto3 session with the provided credentials
+#             boto3_session = boto3.Session(
+#                 aws_access_key_id=self.access_key,
+#                 aws_secret_access_key=self.secret_key,
+#                 region_name=self.region
+#             )
             
-            # Create EC2 client
-            ec2 = boto3_session.client('ec2')
+#             # Create EC2 client
+#             ec2 = boto3_session.client('ec2')
             
-            # Check if instance exists and get its details
-            response = ec2.describe_instances(InstanceIds=[self.instance_id])
+#             # Check if instance exists and get its details
+#             response = ec2.describe_instances(InstanceIds=[self.instance_id])
             
-            if 'Reservations' in response and response['Reservations']:
-                instances = response['Reservations'][0]['Instances']
-                if instances:
-                    instance_state = instances[0].get('State', {}).get('Name', 'unknown')
-                    return True, f"Instance found in {self.region}, state: {instance_state}"
+#             if 'Reservations' in response and response['Reservations']:
+#                 instances = response['Reservations'][0]['Instances']
+#                 if instances:
+#                     instance_state = instances[0].get('State', {}).get('Name', 'unknown')
+#                     return True, f"Instance found in {self.region}, state: {instance_state}"
             
-            return False, "Instance not found"
+#             return False, "Instance not found"
             
-        except Exception as e:
-            return False, str(e)
+#         except Exception as e:
+#             return False, str(e)
 
 
-class BackupSettings(db.Model):
-    __tablename__ = 'backup_settings'
-    __table_args__ = {'extend_existing': True}
+# class BackupSettings(db.Model):
+#     __tablename__ = 'backup_settings'
+#     __table_args__ = {'extend_existing': True}
 
-    id = db.Column(db.Integer, primary_key=True)
-    retention_days = db.Column(db.Integer, default=7, nullable=False)
-    backup_frequency = db.Column(db.String(64), default="0 2 * * *", nullable=False)  # Daily at 2 AM
-    instance_id = db.Column(db.String(64), nullable=False, default="global-config")
-    instance_name = db.Column(db.String(128), default="Global Settings")
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+#     id = db.Column(db.Integer, primary_key=True)
+#     retention_days = db.Column(db.Integer, default=7, nullable=False)
+#     backup_frequency = db.Column(db.String(64), default="0 2 * * *", nullable=False)  # Daily at 2 AM
+#     instance_id = db.Column(db.String(64), nullable=False, default="global-config")
+#     instance_name = db.Column(db.String(128), default="Global Settings")
+#     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+#     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    def __repr__(self):
-        return f'<BackupSettings retention={self.retention_days}d frequency={self.backup_frequency}>'
-
-
-class Backup(db.Model):
-    __tablename__ = 'backups'
-    __table_args__ = {'extend_existing': True}
-
-    id = db.Column(db.Integer, primary_key=True)
-    instance_id = db.Column(db.String(64), db.ForeignKey('instances.instance_id'), nullable=False, index=True)
-    instance_name = db.Column(db.String(128), nullable=False)
-    ami_id = db.Column(db.String(64), nullable=True, index=True)
-    ami_name = db.Column(db.String(128), nullable=True)
-    timestamp = db.Column(db.DateTime, default=lambda: datetime.now(UTC), nullable=False, index=True)
-    status = db.Column(db.String(32), default='Pending', nullable=False, index=True)  # 'Pending', 'Success', 'Failed'
-    region = db.Column(db.String(32), nullable=False)
-    retention_days = db.Column(db.Integer, default=7, nullable=False)
-
-    def __repr__(self):
-        return f'<Backup {self.ami_id} for {self.instance_id} - {self.status}>'
-
-class User(db.Model):
-    __tablename__ = 'users'
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(80), unique=True, nullable=False)
-    email = db.Column(db.String(120), unique=True, nullable=False)
-    password_hash = db.Column(db.String(128), nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    is_active = db.Column(db.Boolean, default=True)
-    last_login = db.Column(db.DateTime, nullable=True)
-    two_factor_enabled = db.Column(db.Boolean, default=False)
-    two_factor_secret = db.Column(db.String(32), nullable=True)
-
-    def set_password(self, password):
-        self.password_hash = generate_password_hash(password)
-    def check_password(self, password):
-        return check_password_hash(self.password_hash, password)
-    def update_last_login(self):
-        self.last_login = datetime.now(UTC)
-        db.session.commit()
+#     def __repr__(self):
+#         return f'<BackupSettings retention={self.retention_days}d frequency={self.backup_frequency}>'
 
 
-# Initialize database and scheduler
-with app.app_context():
-    try:
-        db.create_all()
-        logger.info("✅ Database tables created successfully")
+# class Backup(db.Model):
+#     __tablename__ = 'backups'
+#     __table_args__ = {'extend_existing': True}
 
-        if not scheduler.running:
-            scheduler.start()
-            logger.info("✅ Scheduler started successfully")
+#     id = db.Column(db.Integer, primary_key=True)
+#     instance_id = db.Column(db.String(64), db.ForeignKey('instances.instance_id'), nullable=False, index=True)
+#     instance_name = db.Column(db.String(128), nullable=False)
+#     ami_id = db.Column(db.String(64), nullable=True, index=True)
+#     ami_name = db.Column(db.String(128), nullable=True)
+#     timestamp = db.Column(db.DateTime, default=lambda: datetime.now(UTC), nullable=False, index=True)
+#     status = db.Column(db.String(32), default='Pending', nullable=False, index=True)  # 'Pending', 'Success', 'Failed'
+#     region = db.Column(db.String(32), nullable=False)
+#     retention_days = db.Column(db.Integer, default=7, nullable=False)
 
-            # Schedule backups for active instances
-            instances = Instance.query.filter_by(is_active=True).all()
-            for instance in instances:
-                try:
-                    schedule_instance_backup(instance)
-                    logger.info(f"Initialized backup schedule for instance {instance.instance_id}")
-                except Exception as e:
-                    logger.error(f"Failed to initialize backup schedule for instance {instance.instance_id}: {e}")
-            logger.info(f"Initialized backup schedules for {len(instances)} instances")
-    except Exception as e:
-        logger.error(f"Error during initialization: {e}")
+#     def __repr__(self):
+#         return f'<Backup {self.ami_id} for {self.instance_id} - {self.status}>'
+
+# class User(db.Model):
+#     __tablename__ = 'users'
+#     id = db.Column(db.Integer, primary_key=True)
+#     username = db.Column(db.String(80), unique=True, nullable=False)
+#     email = db.Column(db.String(120), unique=True, nullable=False)
+#     password_hash = db.Column(db.String(128), nullable=False)
+#     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+#     is_active = db.Column(db.Boolean, default=True)
+#     last_login = db.Column(db.DateTime, nullable=True)
+#     two_factor_enabled = db.Column(db.Boolean, default=False)
+#     two_factor_secret = db.Column(db.String(32), nullable=True)
+
+#     def set_password(self, password):
+#         self.password_hash = generate_password_hash(password)
+#     def check_password(self, password):
+#         return check_password_hash(self.password_hash, password)
+#     def update_last_login(self):
+#         self.last_login = datetime.now(UTC)
+#         db.session.commit()
+
+
+# # Initialize database and scheduler
+# with app.app_context():
+#     try:
+#         db.create_all()
+#         logger.info("✅ Database tables created successfully")
+
+#         if not scheduler.running:
+#             scheduler.start()
+#             logger.info("✅ Scheduler started successfully")
+
+#             # Schedule backups for active instances
+#             instances = Instance.query.filter_by(is_active=True).all()
+#             for instance in instances:
+#                 try:
+#                     schedule_instance_backup(instance)
+#                     logger.info(f"Initialized backup schedule for instance {instance.instance_id}")
+#                 except Exception as e:
+#                     logger.error(f"Failed to initialize backup schedule for instance {instance.instance_id}: {e}")
+#             logger.info(f"Initialized backup schedules for {len(instances)} instances")
+#     except Exception as e:
+#         logger.error(f"Error during initialization: {e}")
 
 ############################################################ Scheduler Functions ############################################################
 
@@ -660,7 +654,8 @@ def dashboard():
     
     # Get dashboard statistics
     total_instances = Instance.query.filter_by(is_active=True).count()
-    recent_backups = Backup.query.order_by(Backup.timestamp.desc()).limit(10).all()
+    recent_backups = Backup.query.order_by(Backup.created_at.desc()).limit(10).all()
+    # recent_backups = Backup.query.order_by(Backup.timestamp.desc()).limit(10).all()
     failed_backups = Backup.query.filter_by(status='Failed').count()
     successful_backups = Backup.query.filter_by(status='Success').count()
     
@@ -1208,14 +1203,68 @@ def reinit_db():
 
 ############################################################ AWS Credentials ############################################################
 
-@app.route('/aws-credentials', methods=['GET'])
-def aws_credentials():
-    """Display and manage AWS credentials"""
-    if 'username' not in session:
-        return redirect(url_for('login'))
+# @app.route('/aws-credentials', methods=['GET'])
+# def aws_credentials():
+#     """Display and manage AWS credentials"""
+#     if 'username' not in session:
+#         return redirect(url_for('login'))
     
-    credentials = AWSCredential.query.all()
-    return render_template('aws_credentials.html', credentials=credentials)
+#     credentials = AWSCredential.query.all()
+#     return render_template('aws_credentials.html', credentials=credentials)
+
+@app.route('/aws-credentials')
+def aws_credentials():
+    """Redirect to AWS instances page"""
+    return redirect(url_for('aws_instances'))
+
+# @app.route('/add-aws-credential', methods=['POST'])
+# def add_aws_credential():
+#     """Add a new AWS credential set"""
+#     if 'username' not in session:
+#         return redirect(url_for('login'))
+    
+#     try:
+#         name = request.form.get('name', '').strip()
+#         access_key = request.form.get('access_key', '').strip()
+#         secret_key = request.form.get('secret_key', '').strip()
+#         region = request.form.get('region', '').strip()
+#         custom_region = request.form.get('custom_region', '').strip()
+        
+#         if region == 'custom':
+#             region = custom_region
+        
+#         if not all([name, access_key, secret_key, region]):
+#             flash("All fields are required", "danger")
+#             return redirect(url_for('aws_credentials'))
+        
+#         # Check if name already exists
+#         existing = AWSCredential.query.filter_by(name=name).first()
+#         if existing:
+#             flash(f"Credential name '{name}' already exists", "danger")
+#             return redirect(url_for('aws_credentials'))
+        
+#         # Create and validate new credential
+#         credential = AWSCredential(
+#             name=name,
+#             access_key=access_key,
+#             secret_key=secret_key,
+#             region=region
+#         )
+        
+#         is_valid, msg = credential.validate_credentials()
+#         if not is_valid:
+#             flash(f"Invalid AWS credentials: {msg}", "danger")
+#             return redirect(url_for('aws_credentials'))
+        
+#         db.session.add(credential)
+#         db.session.commit()
+#         flash(f"AWS credentials '{name}' added successfully", "success")
+        
+#     except Exception as e:
+#         logger.error(f"Error adding AWS credential: {e}")
+#         flash("An error occurred while adding the AWS credential", "danger")
+    
+#     return redirect(url_for('aws_credentials'))
 
 @app.route('/add-aws-credential', methods=['POST'])
 def add_aws_credential():
@@ -1235,26 +1284,30 @@ def add_aws_credential():
         
         if not all([name, access_key, secret_key, region]):
             flash("All fields are required", "danger")
-            return redirect(url_for('aws_credentials'))
+            return redirect(url_for('aws_instances'))
         
         # Check if name already exists
         existing = AWSCredential.query.filter_by(name=name).first()
         if existing:
             flash(f"Credential name '{name}' already exists", "danger")
-            return redirect(url_for('aws_credentials'))
+            return redirect(url_for('aws_instances'))
+        
+        # Get current user
+        current_user = User.query.filter_by(username=session['username']).first()
         
         # Create and validate new credential
         credential = AWSCredential(
             name=name,
             access_key=access_key,
             secret_key=secret_key,
-            region=region
+            region=region,
+            user_id=current_user.id if current_user else None
         )
         
         is_valid, msg = credential.validate_credentials()
         if not is_valid:
             flash(f"Invalid AWS credentials: {msg}", "danger")
-            return redirect(url_for('aws_credentials'))
+            return redirect(url_for('aws_instances'))
         
         db.session.add(credential)
         db.session.commit()
@@ -1264,7 +1317,35 @@ def add_aws_credential():
         logger.error(f"Error adding AWS credential: {e}")
         flash("An error occurred while adding the AWS credential", "danger")
     
-    return redirect(url_for('aws_credentials'))
+    return redirect(url_for('aws_instances'))
+
+#@app.route('/delete-aws-credential/<int:credential_id>', methods=['POST'])
+#def delete_aws_credential(credential_id):
+#    """Delete an AWS credential set"""
+#    if 'username' not in session:
+#        return redirect(url_for('login'))
+#    
+#    try:
+#        credential = AWSCredential.query.get(credential_id)
+#        if not credential:
+#            flash("AWS credential not found", "danger")
+#            return redirect(url_for('aws_credentials'))
+#        
+#        # Check if credential is in use
+#        instances = Instance.query.filter_by(access_key=credential.access_key, secret_key=credential.secret_key).all()
+#        if instances:
+#            flash("Cannot delete credential that is in use by instances", "danger")
+#            return redirect(url_for('aws_credentials'))
+#        
+#        db.session.delete(credential)
+#        db.session.commit()
+#        flash(f"AWS credential '{credential.name}' deleted successfully", "success")
+#        
+#    except Exception as e:
+#        logger.error(f"Error deleting AWS credential: {e}")
+#        flash("An error occurred while deleting the AWS credential", "danger")
+#    
+#    return redirect(url_for('aws_credentials'))
 
 @app.route('/delete-aws-credential/<int:credential_id>', methods=['POST'])
 def delete_aws_credential(credential_id):
@@ -1276,13 +1357,13 @@ def delete_aws_credential(credential_id):
         credential = AWSCredential.query.get(credential_id)
         if not credential:
             flash("AWS credential not found", "danger")
-            return redirect(url_for('aws_credentials'))
+            return redirect(url_for('aws_instances'))
         
         # Check if credential is in use
         instances = Instance.query.filter_by(access_key=credential.access_key, secret_key=credential.secret_key).all()
         if instances:
             flash("Cannot delete credential that is in use by instances", "danger")
-            return redirect(url_for('aws_credentials'))
+            return redirect(url_for('aws_instances'))
         
         db.session.delete(credential)
         db.session.commit()
@@ -1292,7 +1373,7 @@ def delete_aws_credential(credential_id):
         logger.error(f"Error deleting AWS credential: {e}")
         flash("An error occurred while deleting the AWS credential", "danger")
     
-    return redirect(url_for('aws_credentials'))
+    return redirect(url_for('aws_instances'))
 
 @app.route('/delete-aws-credential/<int:credential_id>', methods=['POST'])
 def delete_aws_credential_ajax(credential_id):
