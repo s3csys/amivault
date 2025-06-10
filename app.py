@@ -767,7 +767,7 @@ def setup_2fa():
     # Create TOTP URI for QR code
     totp_uri = pyotp.totp.TOTP(secret).provisioning_uri(
         name=user.email or user.username,
-        issuer_name="AWS Backup Manager"
+        issuer_name="AMIVault"
     )
 
     # Generate QR code as base64
