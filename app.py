@@ -399,7 +399,7 @@ def create_backup(instance_id):
                 )
 
                 ami_id = response['ImageId']
-                backup.ami_id = ami_id
+                Backup.snapshot_id = ami_id
                 backup.status = 'Success'
                 db.session.commit()
 
@@ -2080,7 +2080,7 @@ def bulk_export_amis():
         
         for backup in backups:
             writer.writerow([
-                backup.ami_id or 'N/A',
+                Backup.snapshot_id or 'N/A',
                 backup.instance_name,
                 backup.instance_id,
                 backup.region,
@@ -2152,21 +2152,21 @@ def bulk_tag_amis():
                 )
                 
                 for backup in backups:
-                    if backup.ami_id:
+                    if Backup.snapshot_id:
                         try:
                             ec2_client.create_tags(
-                                Resources=[backup.ami_id],
+                                Resources=[Backup.snapshot_id],
                                 Tags=[{'Key': tag_key, 'Value': tag_value}]
                             )
-                            tagged_amis.append(backup.ami_id)
+                            tagged_amis.append(Backup.snapshot_id)
                         except ClientError as e:
                             error_code = e.response.get('Error', {}).get('Code', '')
                             if error_code == 'InvalidAMIID.NotFound':
-                                errors.append(f"AMI {backup.ami_id} not found")
+                                errors.append(f"AMI {Backup.snapshot_id} not found")
                             else:
-                                errors.append(f"Failed to tag {backup.ami_id}: {str(e)}")
+                                errors.append(f"Failed to tag {Backup.snapshot_id}: {str(e)}")
                         except Exception as e:
-                            errors.append(f"Failed to tag {backup.ami_id}: {str(e)}")
+                            errors.append(f"Failed to tag {Backup.snapshot_id}: {str(e)}")
                             
             except Exception as e:
                 errors.append(f"Failed to connect to AWS for instance {inst_id}: {str(e)}")
@@ -2396,7 +2396,7 @@ def start_backup(instance_id):
         
         # Update backup record to Success
         backup.status = 'Success'
-        backup.ami_id = ami_id
+        Backup.snapshot_id = ami_id
         db.session.commit()
         
         # Trigger cleanup of old AMIs for this instance
@@ -2595,7 +2595,7 @@ def backup_instance(instance_id):
             # Update backup record
             end_time = datetime.now(UTC)
             backup.status = 'Success'
-            backup.ami_id = ami_id
+            Backup.snapshot_id = ami_id
             backup.duration_seconds = int((end_time - start_time).total_seconds())
             db.session.commit()
             
@@ -2742,8 +2742,8 @@ def search_suggestions():
             Instance.is_active == True
         ).distinct().all()
         
-        ami_ids = db.session.query(Backup.ami_id).filter(
-            Backup.ami_id.isnot(None)
+        ami_ids = db.session.query(Backup.snapshot_id).filter(
+            Backup.snapshot_id.isnot(None)
         ).distinct().all()
         
         # Flatten and combine suggestions
@@ -2797,11 +2797,11 @@ def api_amis():
         
         backups = Backup.query.filter(
             Backup.instance_id.in_(instance_ids),
-            Backup.ami_id.isnot(None)
+            Backup.snapshot_id.isnot(None)
         ).order_by(Backup.timestamp.desc()).all()
         
         return jsonify([{
-            'ami_id': backup.ami_id,
+            'ami_id': Backup.snapshot_id,
             'instance_name': backup.instance_name,
             'instance_id': backup.instance_id,
             'status': backup.status,
@@ -2914,7 +2914,7 @@ def bulk_delete_amis():
             
             # Get backups with AMI IDs
             backups = Backup.query.filter_by(instance_id=inst_id).filter(
-                Backup.ami_id.isnot(None)
+                Backup.snapshot_id.isnot(None)
             ).all()
             
             if not backups:
@@ -2932,7 +2932,7 @@ def bulk_delete_amis():
                 for backup in backups:
                     try:
                         # Get AMI details before deletion
-                        ami_response = ec2_client.describe_images(ImageIds=[backup.ami_id])
+                        ami_response = ec2_client.describe_images(ImageIds=[Backup.snapshot_id])
                         if ami_response['Images']:
                             image = ami_response['Images'][0]
                             
@@ -2942,25 +2942,25 @@ def bulk_delete_amis():
                                 if ebs and 'SnapshotId' in ebs:
                                     try:
                                         ec2_client.delete_snapshot(SnapshotId=ebs['SnapshotId'])
-                                        logger.info(f"Deleted snapshot {ebs['SnapshotId']} for AMI {backup.ami_id}")
+                                        logger.info(f"Deleted snapshot {ebs['SnapshotId']} for AMI {Backup.snapshot_id}")
                                     except ClientError as snap_e:
                                         if snap_e.response.get('Error', {}).get('Code') != 'InvalidSnapshot.NotFound':
                                             logger.warning(f"Could not delete snapshot {ebs['SnapshotId']}: {snap_e}")
                             
                             # Deregister AMI
-                            ec2_client.deregister_image(ImageId=backup.ami_id)
-                            deleted_amis.append(backup.ami_id)
-                            logger.info(f"Deleted AMI {backup.ami_id} for instance {inst_id}")
+                            ec2_client.deregister_image(ImageId=Backup.snapshot_id)
+                            deleted_amis.append(Backup.snapshot_id)
+                            logger.info(f"Deleted AMI {Backup.snapshot_id} for instance {inst_id}")
                             
                     except ClientError as e:
                         error_code = e.response.get('Error', {}).get('Code', '')
                         if error_code == 'InvalidAMIID.NotFound':
                             # AMI already deleted, just remove from database
-                            deleted_amis.append(backup.ami_id)
+                            deleted_amis.append(Backup.snapshot_id)
                         else:
-                            errors.append(f"Error deleting AMI {backup.ami_id}: {str(e)}")
+                            errors.append(f"Error deleting AMI {Backup.snapshot_id}: {str(e)}")
                     except Exception as e:
-                        errors.append(f"Error deleting AMI {backup.ami_id}: {str(e)}")
+                        errors.append(f"Error deleting AMI {Backup.snapshot_id}: {str(e)}")
                 
                 # Delete backup records from database
                 deleted_records = Backup.query.filter_by(instance_id=inst_id).delete(synchronize_session=False)
@@ -3979,7 +3979,7 @@ def perform_backup(instance_id):
         )
         
         ami_id = response['ImageId']
-        backup.ami_id = ami_id
+        Backup.snapshot_id = ami_id
         backup.ami_name = ami_name
         backup.status = 'Success'
         backup.duration_seconds = int((datetime.now(UTC) - start_time).total_seconds())
@@ -4024,13 +4024,13 @@ def cleanup_old_backups(instance_id):
         )
         
         for backup in expired_backups:
-            if backup.is_expired and backup.ami_id:
+            if backup.is_expired and Backup.snapshot_id:
                 try:
                     # Delete AMI and associated snapshots
-                    ec2_client.deregister_image(ImageId=backup.ami_id)
+                    ec2_client.deregister_image(ImageId=Backup.snapshot_id)
                     
                     # Get and delete associated snapshots
-                    images = ec2_client.describe_images(ImageIds=[backup.ami_id])
+                    images = ec2_client.describe_images(ImageIds=[Backup.snapshot_id])
                     if images['Images']:
                         for block_device in images['Images'][0].get('BlockDeviceMappings', []):
                             if 'Ebs' in block_device and 'SnapshotId' in block_device['Ebs']:
@@ -4040,11 +4040,11 @@ def cleanup_old_backups(instance_id):
                     backup.cleanup_status = 'completed'
                     backup.cleanup_timestamp = datetime.now(UTC)
                     
-                    logger.info(f"Cleaned up expired backup {backup.ami_id} for {instance_id}")
+                    logger.info(f"Cleaned up expired backup {Backup.snapshot_id} for {instance_id}")
                     
                 except ClientError as e:
                     if e.response['Error']['Code'] != 'InvalidAMIID.NotFound':
-                        logger.error(f"Error cleaning up backup {backup.ami_id}: {e}")
+                        logger.error(f"Error cleaning up backup {Backup.snapshot_id}: {e}")
                         backup.cleanup_status = 'failed'
                     else:
                         # AMI already deleted, mark as completed
