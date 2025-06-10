@@ -8,53 +8,79 @@
       <h3 style="margin-top:0; color:#4f8cff;">Add New Instance</h3>
       <form method="POST" action="{{ url_for('add_instance') }}" class="instance-form">
         <label>Instance ID</label>
-        <input type="text" id="instance_id" name="instance_id" placeholder="Instance ID" required>
-        
-        <label>AWS Region</label>
-        <select id="region_select_add" name="region" onchange="toggleCustomRegion('region_select_add', 'custom_region_add')" required>
-          <option value="">Select Region</option>
-          <option value="us-east-1">US East (N. Virginia)</option>
-          <option value="us-east-2">US East (Ohio)</option>
-          <option value="us-west-1">US West (N. California)</option>
-          <option value="us-west-2">US West (Oregon)</option>
-          <option value="af-south-1">Africa (Cape Town)</option>
-          <option value="ap-east-1">Asia Pacific (Hong Kong)</option>
-          <option value="ap-south-1">Asia Pacific (Mumbai)</option>
-          <option value="ap-northeast-3">Asia Pacific (Osaka)</option>
-          <option value="ap-northeast-2">Asia Pacific (Seoul)</option>
-          <option value="ap-southeast-1">Asia Pacific (Singapore)</option>
-          <option value="ap-southeast-2">Asia Pacific (Sydney)</option>
-          <option value="ap-northeast-1">Asia Pacific (Tokyo)</option>
-          <option value="ca-central-1">Canada (Central)</option>
-          <option value="eu-central-1">Europe (Frankfurt)</option>
-          <option value="eu-west-1">Europe (Ireland)</option>
-          <option value="eu-west-2">Europe (London)</option>
-          <option value="eu-south-1">Europe (Milan)</option>
-          <option value="eu-west-3">Europe (Paris)</option>
-          <option value="eu-north-1">Europe (Stockholm)</option>
-          <option value="me-south-1">Middle East (Bahrain)</option>
-          <option value="sa-east-1">South America (São Paulo)</option>
-          <option value="custom">Custom</option>
-        </select>
-        <input
-          type="text"
-          id="custom_region_add"
-          name="custom_region"
-          placeholder="Enter custom region (e.g. us-gov-west-1)"
-          style="display:none; margin-left:10px;"
-        >
-
-        <label>AWS Access Key</label>
-        <input type="password" id="access_key" name="access_key" placeholder="AWS Access Key" required>
-
-        <label>AWS Secret Key</label>
-        <input type="password" id="secret_key" name="secret_key" placeholder="AWS Secret Key" required>
-
-        <label>Instance Name (Optional)</label>
         <div style="display: flex; gap: 20px; align-items: center;">
-            <input type="text" id="instance_name" name="instance_name" placeholder="Instance Name" required style="flex: 1;">
-            <button type="button" class="small-check-btn" id="check-instance-btn">Check</button>
+            <input type="text" id="instance_id" name="instance_id" placeholder="Instance ID" required style="flex: 1;">
+            <button type="button" class="small-check-btn check-instance-btn" id="check-instance-btn">Check</button>
         </div>
+        
+        <!-- AWS Credentials Dropdown -->
+        <label>AWS Credentials</label>
+        <select id="aws_credential_id" name="aws_credential_id" onchange="toggleCredentialFields()">
+          <option value="">-- Select Saved Credentials --</option>
+          {% for cred in aws_credentials %}
+          <option value="{{ cred.id }}">{{ cred.name }} ({{ cred.region }})</option>
+          {% endfor %}
+          <option value="new">Add New Credentials</option>
+        </select>
+        
+        <!-- Credential fields that will be shown/hidden based on selection -->
+        <div id="credential_fields">
+          <label>AWS Region</label>
+          <select id="region_select_add" name="region" onchange="toggleCustomRegion('region_select_add', 'custom_region_add')" required>
+            <option value="">Select Region</option>
+            <option value="us-east-1">US East (N. Virginia)</option>
+            <option value="us-east-2">US East (Ohio)</option>
+            <option value="us-west-1">US West (N. California)</option>
+            <option value="us-west-2">US West (Oregon)</option>
+            <option value="af-south-1">Africa (Cape Town)</option>
+            <option value="ap-east-1">Asia Pacific (Hong Kong)</option>
+            <option value="ap-south-1">Asia Pacific (Mumbai)</option>
+            <option value="ap-northeast-3">Asia Pacific (Osaka)</option>
+            <option value="ap-northeast-2">Asia Pacific (Seoul)</option>
+            <option value="ap-southeast-1">Asia Pacific (Singapore)</option>
+            <option value="ap-southeast-2">Asia Pacific (Sydney)</option>
+            <option value="ap-northeast-1">Asia Pacific (Tokyo)</option>
+            <option value="ca-central-1">Canada (Central)</option>
+            <option value="eu-central-1">Europe (Frankfurt)</option>
+            <option value="eu-west-1">Europe (Ireland)</option>
+            <option value="eu-west-2">Europe (London)</option>
+            <option value="eu-south-1">Europe (Milan)</option>
+            <option value="eu-west-3">Europe (Paris)</option>
+            <option value="eu-north-1">Europe (Stockholm)</option>
+            <option value="me-south-1">Middle East (Bahrain)</option>
+            <option value="sa-east-1">South America (São Paulo)</option>
+            <option value="custom">Custom</option>
+          </select>
+          <input
+            type="text"
+            id="custom_region_add"
+            name="custom_region"
+            placeholder="Enter custom region (e.g. us-gov-west-1)"
+            style="display:none; margin-left:10px;"
+          >
+
+          <label>AWS Access Key</label>
+          <input type="password" id="access_key" name="access_key" placeholder="AWS Access Key">
+
+          <label>AWS Secret Key</label>
+          <input type="password" id="secret_key" name="secret_key" placeholder="AWS Secret Key">
+          
+          <!-- Option to save credentials -->
+          <div class="checkbox-container" style="margin-top:10px;">
+            <input type="checkbox" id="save_credentials" name="save_credentials">
+            <label for="save_credentials" style="display:inline; margin-left:5px;">Save these credentials for future use</label>
+          </div>
+          
+          <div id="credential_name_container" style="display:none; margin-top:10px;">
+            <label>Credential Name</label>
+            <input type="text" id="credential_name" name="credential_name" placeholder="Enter a name for these credentials">
+          </div>
+        </div>
+        
+        <!-- Rest of the form -->
+        
+        <label>Instance Name (Optional)</label>
+        <input type="text" id="instance_name" name="instance_name" placeholder="Instance Name">
         
         <label>Backup Frequency</label>
         <select id="backup_frequency_select_add" name="backup_frequency" onchange="toggleCustomFreq('backup_frequency_select_add', 'custom_backup_frequency_add', 'customHelpTextAdd')" required>
@@ -165,14 +191,11 @@
                   </form>
                 </td>
               <td>
-
-              <form method="POST" action="{{ url_for('delete_instance', instance_id=inst.instance_id) }}" class="delete-instance-form" style="display:inline;">
-                <button type="submit" class="action-btn action-danger" title="Delete Instance" style="background:#ff3b30; border:none;">
-                  Delete
-                </button>
-              </form>
-
-
+                <form method="POST" action="{{ url_for('delete_instance', instance_id=inst.instance_id) }}" class="delete-instance-form" style="display:inline;">
+                  <button type="submit" class="action-btn action-danger" title="Delete Instance" style="background:#ff3b30; border:none;">
+                    Delete
+                  </button>
+                </form>
               </td>
             </tr>
             {% endfor %}
@@ -183,105 +206,169 @@
   </div>
   {% endif %}
 </div>
+
+<!-- JavaScript for the page -->
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script>
-function toggleCustomFreq(selectElemId, customInputId, helpTextId) {
-    var selectElem = document.getElementById(selectElemId);
+// Function to toggle custom region input field
+function toggleCustomRegion(selectId, customInputId) {
+    var select = document.getElementById(selectId);
+    var customInput = document.getElementById(customInputId);
+    
+    if (select.value === 'custom') {
+        customInput.style.display = 'block';
+        customInput.required = true;
+    } else {
+        customInput.style.display = 'none';
+        customInput.required = false;
+    }
+}
+
+// Function to toggle custom backup frequency input field
+function toggleCustomFreq(selectId, customInputId, helpTextId) {
+    var select = document.getElementById(selectId);
     var customInput = document.getElementById(customInputId);
     var helpText = document.getElementById(helpTextId);
-    if (selectElem.value === 'custom') {
+    
+    if (select.value === 'custom') {
         customInput.style.display = 'inline-block';
         customInput.required = true;
-        helpText.style.display = 'block';
+        if (helpText) helpText.style.display = 'block';
     } else {
         customInput.style.display = 'none';
         customInput.required = false;
-        customInput.value = '';
-        helpText.style.display = 'none';
+        if (helpText) helpText.style.display = 'none';
     }
 }
-function toggleCustomRegion(selectElemId, customInputId) {
-    var selectElem = document.getElementById(selectElemId);
-    var customInput = document.getElementById(customInputId);
-    if (selectElem.value === 'custom') {
-        customInput.style.display = 'inline-block';
-        customInput.required = true;
-    } else {
-        customInput.style.display = 'none';
-        customInput.required = false;
-        customInput.value = '';
-    }
-}
-</script>
 
-<!--########## check-instance-btn ########## -->
-<!-- Add this in your HTML, preferably before </body> -->
-<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    document.getElementById('check-instance-btn').onclick = function() {
-        const instanceId = document.getElementById('instance_id').value;
-        const accessKey = document.getElementById('access_key').value;
-        const secretKey = document.getElementById('secret_key').value;
-        let region = document.getElementById('region_select_add').value;
+// Function to toggle credential fields
+function toggleCredentialFields() {
+    var credentialSelect = document.getElementById('aws_credential_id');
+    var credentialFields = document.getElementById('credential_fields');
+    var saveCredentialsContainer = document.getElementById('save_credentials').parentElement;
+    
+    if (credentialSelect.value === 'new' || credentialSelect.value === '') {
+        // Show credential fields for new credentials
+        credentialFields.style.display = 'block';
+        
+        // For new credentials, enable the fields
+        document.getElementById('region_select_add').disabled = false;
+        document.getElementById('access_key').disabled = false;
+        document.getElementById('secret_key').disabled = false;
+        
+        // Only show save option for new credentials
+        if (credentialSelect.value === 'new') {
+            saveCredentialsContainer.style.display = 'block';
+        } else {
+            saveCredentialsContainer.style.display = 'none';
+        }
+    } else {
+        // Hide credential fields when using saved credentials
+        credentialFields.style.display = 'none';
+    }
+}
+
+// Event listener for credential selection
+document.getElementById('aws_credential_id').addEventListener('change', function() {
+    toggleCredentialFields();
+});
+
+// Event listener for save credentials checkbox
+document.getElementById('save_credentials').addEventListener('change', function() {
+    var credentialNameContainer = document.getElementById('credential_name_container');
+    if (this.checked) {
+        credentialNameContainer.style.display = 'block';
+    } else {
+        credentialNameContainer.style.display = 'none';
+    }
+});
+
+// Event listener for backup frequency
+document.getElementById('backup_frequency_select_add').addEventListener('change', function() {
+    toggleCustomFreq('backup_frequency_select_add', 'custom_backup_frequency_add', 'customHelpTextAdd');
+});
+
+// Check instance button functionality
+$('#check-instance-btn').on('click', function() {
+    const instanceId = $('#instance_id').val().trim();
+    const credentialId = $('#aws_credential_id').val();
+    let accessKey = '';
+    let secretKey = '';
+    let region = '';
+
+    if (credentialId === 'new') {
+        accessKey = $('#access_key').val().trim();
+        secretKey = $('#secret_key').val().trim();
+        region = $('#region_select_add').val().trim();
         if (region === 'custom') {
-            region = document.getElementById('custom_region_add').value.trim();
+            region = $('#custom_region_add').val().trim();
         }
+    } else {
+        // For saved credentials, we only need to send the credential_id
+        // The backend will look up the access key, secret key, and region
+    }
 
-        if (!instanceId || !accessKey || !secretKey || !region) {
-            Swal.fire({
-                icon: 'warning',
-                title: 'Missing Fields',
-                text: 'Please enter the Instance ID, Access Key, Secret Key, and Region.',
-                confirmButtonColor: '#3085d6'
-            });
-            return;
-        }
+    // Show loading state
+    const $btn = $(this);
+    const originalText = $btn.html();
+    $btn.html('<i class="fas fa-spinner fa-spin"></i> Checking...');
+    $btn.prop('disabled', true);
 
-        fetch('{{ url_for("check_instance") }}', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                instance_id: instanceId,
-                access_key: accessKey,
-                secret_key: secretKey,
-                region: region
-            })
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                document.getElementById('instance_name').value = data.instance_name;
+    $.ajax({
+        url: '/check-instance',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({
+            instance_id: instanceId,
+            credential_id: credentialId !== 'new' ? credentialId : null,
+            access_key: accessKey,
+            secret_key: secretKey,
+            region: region
+        }),
+        success: function(response) {
+            if (response.success) {
+                // Update instance name field
+                $('#instance_name').val(response.instance_name);
+                
+                // Show success message
                 Swal.fire({
                     icon: 'success',
-                    title: 'Success',
-                    text: 'Instance found and name filled!',
-                    timer: 2000,
-                    showConfirmButton: false
+                    title: 'Instance Verified',
+                    text: `Successfully verified instance: ${response.instance_name}`,
+                    confirmButtonColor: '#28a745'
                 });
             } else {
                 Swal.fire({
                     icon: 'error',
-                    title: 'Error',
-                    html: 'Instance not found or not accessible.<br>' + (data.error || ''),
-                    confirmButtonColor: '#d33'
+                    title: 'Verification Failed',
+                    text: response.error || 'Failed to verify instance',
+                    confirmButtonColor: '#dc3545'
                 });
             }
-        })
-        .catch(() => Swal.fire({
-            icon: 'error',
-            title: 'Error',
-            text: 'Error checking instance.',
-            confirmButtonColor: '#d33'
-        }));
-    };
+        },
+        error: function(xhr) {
+            let errorMessage = 'Failed to verify instance';
+            try {
+                const response = JSON.parse(xhr.responseText);
+                errorMessage = response.error || response.message || errorMessage;
+            } catch (e) {}
+            
+            Swal.fire({
+                icon: 'error',
+                title: 'Verification Failed',
+                text: errorMessage,
+                confirmButtonColor: '#dc3545'
+            });
+        },
+        complete: function() {
+            // Restore button state
+            $btn.html(originalText);
+            $btn.prop('disabled', false);
+        }
+    });
 });
-</script>
 
-<!-------------- instance delete button-------------->
-<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-<script>
+// Delete instance confirmation
 document.addEventListener('DOMContentLoaded', function() {
   document.querySelectorAll('.delete-instance-form').forEach(function(form) {
     form.addEventListener('submit', function(e) {
@@ -304,8 +391,4 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 });
 </script>
-<!-------------- instance delete button-------------->
-
-
-
 {% endblock %}

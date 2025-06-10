@@ -135,7 +135,8 @@ document.addEventListener('DOMContentLoaded', function() {
 <!-- Update Profile -->
 <div class="card" style="margin-bottom: 2rem;">
   <h3>Update My Profile</h3>
-  <form method="POST" action="{{ url_for('update_profile') }}">
+  <form method="POST" action="{{ url_for('user_settings') }}">
+    <input type="hidden" name="action" value="update_profile">
     <label for="profile-username" style="margin-bottom: 0.5em;">Username</label>
     <input type="text" id="profile-username" name="username" value="{{ current_user.username }}" readonly style="margin-bottom: 1em;">
     <label for="profile-email" style="margin-bottom: 0.5em;">Email</label>
