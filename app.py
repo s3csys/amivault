@@ -542,26 +542,43 @@ def dashboard():
         return redirect(url_for('login'))
     
     # Get dashboard statistics
-    total_instances = Instance.query.filter_by(is_active=True).count()
-    recent_backups = Backup.query.order_by(Backup.created_at.desc()).limit(10).all()
-    # recent_backups = Backup.query.order_by(Backup.timestamp.desc()).limit(10).all()
-    failed_backups = Backup.query.filter_by(status='Failed').count()
-    successful_backups = Backup.query.filter_by(status='Success').count()
-    
+    # total_instances = Instance.query.filter_by(is_active=True).count()
+    # recent_backups = Backup.query.order_by(Backup.created_at.desc()).limit(10).all()
+    # # recent_backups = Backup.query.order_by(Backup.timestamp.desc()).limit(10).all()
+    # failed_backups = Backup.query.filter_by(status='Failed').count()
+    # successful_backups = Backup.query.filter_by(status='Success').count()
+    backups = Backup.query.order_by(Backup.timestamp.desc()).all()
+    last_backup = backups[0] if backups else None
+    regions = db.session.query(Backup.region).distinct().all()
+    ami_ids = db.session.query(Backup.ami_id).distinct().all()
+
     # Get backup settings
     backup_settings = BackupSettings.query.first()
     
-    stats = {
-        'total_instances': total_instances,
-        'successful_backups': successful_backups,
-        'failed_backups': failed_backups,
-        'recent_backups': recent_backups
-    }
+    # stats = {
+    #     'total_instances': total_instances,
+    #     'successful_backups': successful_backups,
+    #     'failed_backups': failed_backups,
+    #     'recent_backups': recent_backups
+    # }
     
+    # return render_template('dashboard.html', 
+    #                     #  user=user, 
+    #                     #  stats=stats,
+    #                     user=user,
+    #                     backups=backups,
+    #                     last_backup=last_backup,
+    #                     region=region,
+    #                     ami_id=ami_id,
+    #                     backup_settings=backup_settings)
     return render_template('dashboard.html', 
-                         user=user, 
-                         stats=stats,
-                         backup_settings=backup_settings)
+                       user=user,
+                       backups=backups,
+                       last_backup=last_backup,
+                       regions=regions,
+                       ami_ids=ami_ids,
+                       backup_settings=backup_settings)
+
 
 
 @app.route('/login', methods=['GET', 'POST'])
