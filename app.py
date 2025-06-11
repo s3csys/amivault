@@ -2471,7 +2471,7 @@ def backup_instance(instance_id):
                 # ami_name=ami_name,
                 # timestamp=start_time,
                 # status='Pending',
-                # region=inst.region,
+                region=inst.region,
                 # retention_days=retention_days,
                 # backup_type='scheduled'
                 instance_id=instance_id,
@@ -2491,22 +2491,35 @@ def backup_instance(instance_id):
                 NoReboot=True
             )
             ami_id = ami_response['ImageId']
-            
+            # db.session.refresh(backup)
+            # backup.ami_id = ami_id
+            # db.session.commit()
+            logger.info(f"Attempting to update AMI ID to: {ami_id}")
+            db.session.refresh(backup)
+            backup.ami_id = ami_id
+            db.session.commit()
+            logger.info(f"Successfully updated AMI ID to: {backup.ami_id}")
+
             # Tag the AMI
             ec2_client.create_tags(
                 Resources=[ami_id],
                 Tags=[
-                    {'Key': 'CreatedBy', 'Value': 'AutoBackup'},
+                    {'Key': 'CreatedBy', 'Value': 'AmiVault'},
                     {'Key': 'InstanceName', 'Value': instance_name},
                     {'Key': 'BackupType', 'Value': 'scheduled'},
                     {'Key': 'RetentionDays', 'Value': str(retention_days)}
                 ]
+                # db.session.refresh(backup)
+                # backup.tags = tags
+                # db.session.commit()
             )
             
             # Update backup record
             end_time = datetime.now(UTC)
             backup.status = 'Success'
-            backup.snapshot_id = ami_id
+            db.session.commit()
+
+            # Update backup record with duration
             backup.duration_seconds = int((end_time - start_time).total_seconds())
             db.session.commit()
             

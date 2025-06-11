@@ -152,6 +152,7 @@ class Backup(db.Model):
     retention_days = db.Column(db.Integer, nullable=False, default=7)
     region = db.Column(db.String(20), nullable=True)  # Added for region information
     tags = db.Column(db.JSON, nullable=True)
+    duration_seconds = db.Column(db.Integer, nullable=True)
 
     def __repr__(self):
         return f'<Backup {self.ami_id} for {self.instance_id}>'
