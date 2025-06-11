@@ -2449,14 +2449,19 @@ def backup_instance(instance_id):
             
             # Create backup record
             backup = Backup(
+                # instance_id=instance_id,
+                # instance_name=instance_name,
+                # ami_name=ami_name,
+                # timestamp=start_time,
+                # status='Pending',
+                # region=inst.region,
+                # retention_days=retention_days,
+                # backup_type='scheduled'
                 instance_id=instance_id,
-                instance_name=instance_name,
                 ami_name=ami_name,
                 timestamp=start_time,
                 status='Pending',
-                region=inst.region,
-                retention_days=retention_days,
-                backup_type='scheduled'
+                retention_days=retention_days
             )
             db.session.add(backup)
             db.session.commit()
@@ -2551,8 +2556,8 @@ def search_suggestions():
             Instance.is_active == True
         ).distinct().all()
         
-        ami_ids = db.session.query(Backup.snapshot_id).filter(
-            Backup.snapshot_id.isnot(None)
+        ami_ids = db.session.query(Backup.ami_id).filter(
+            Backup.ami_id.isnot(None)
         ).distinct().all()
         
         # Flatten and combine suggestions
@@ -2723,7 +2728,7 @@ def bulk_delete_amis():
             
             # Get backups with AMI IDs
             backups = Backup.query.filter_by(instance_id=inst_id).filter(
-                Backup.snapshot_id.isnot(None)
+                Backup.ami_id.isnot(None)
             ).all()
             
             if not backups:
@@ -2741,7 +2746,7 @@ def bulk_delete_amis():
                 for backup in backups:
                     try:
                         # Get AMI details before deletion
-                        ami_response = ec2_client.describe_images(ImageIds=[Backup.snapshot_id])
+                        ami_response = ec2_client.describe_images(ImageIds=[backup.ami_id])
                         if ami_response['Images']:
                             image = ami_response['Images'][0]
                             
@@ -2751,25 +2756,25 @@ def bulk_delete_amis():
                                 if ebs and 'SnapshotId' in ebs:
                                     try:
                                         ec2_client.delete_snapshot(SnapshotId=ebs['SnapshotId'])
-                                        logger.info(f"Deleted snapshot {ebs['SnapshotId']} for AMI {Backup.snapshot_id}")
+                                        logger.info(f"Deleted snapshot {ebs['SnapshotId']} for AMI {backup.ami_id}")
                                     except ClientError as snap_e:
                                         if snap_e.response.get('Error', {}).get('Code') != 'InvalidSnapshot.NotFound':
                                             logger.warning(f"Could not delete snapshot {ebs['SnapshotId']}: {snap_e}")
                             
                             # Deregister AMI
-                            ec2_client.deregister_image(ImageId=Backup.snapshot_id)
-                            deleted_amis.append(Backup.snapshot_id)
-                            logger.info(f"Deleted AMI {Backup.snapshot_id} for instance {inst_id}")
+                            ec2_client.deregister_image(ImageId=backup.ami_id)
+                            deleted_amis.append(backup.ami_id)
+                            logger.info(f"Deleted AMI {backup.ami_id} for instance {inst_id}")
                             
                     except ClientError as e:
                         error_code = e.response.get('Error', {}).get('Code', '')
                         if error_code == 'InvalidAMIID.NotFound':
                             # AMI already deleted, just remove from database
-                            deleted_amis.append(Backup.snapshot_id)
+                            deleted_amis.append(backup.ami_id)
                         else:
-                            errors.append(f"Error deleting AMI {Backup.snapshot_id}: {str(e)}")
+                            errors.append(f"Error deleting AMI {backup.ami_id}: {str(e)}")
                     except Exception as e:
-                        errors.append(f"Error deleting AMI {Backup.snapshot_id}: {str(e)}")
+                        errors.append(f"Error deleting AMI {backup.ami_id}: {str(e)}")
                 
                 # Delete backup records from database
                 deleted_records = Backup.query.filter_by(instance_id=inst_id).delete(synchronize_session=False)
@@ -3827,10 +3832,10 @@ def perform_backup(instance_id):
         # Create backup record
         backup = Backup(
             instance_id=instance.instance_id,
-            instance_name=instance.instance_name,
-            region=instance.region,
+            #instance_name=instance.instance_name,
+            #region=instance.region,
             status='Pending',
-            backup_type='scheduled',
+            #backup_type='scheduled',
             retention_days=get_effective_setting(
                 instance.retention_days,
                 BackupSettings.query.first().retention_days if BackupSettings.query.first() else 7

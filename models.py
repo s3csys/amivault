@@ -141,17 +141,20 @@ class Backup(db.Model):
     
     id = db.Column(db.Integer, primary_key=True)
     instance_id = db.Column(db.String(50), db.ForeignKey('instances.instance_id'), nullable=False)
-    snapshot_id = db.Column(db.String(50), nullable=True)
+    ami_id = db.Column(db.String(50), nullable=True)  # Changed from snapshot_id
+    ami_name = db.Column(db.String(100), nullable=True)  # Added for AMI name
     status = db.Column(db.String(20), nullable=False, default='pending')
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)  # Added for backup timestamp
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     completed_at = db.Column(db.DateTime, nullable=True)
     error_message = db.Column(db.Text, nullable=True)
     size_gb = db.Column(db.Float, nullable=True)
     retention_days = db.Column(db.Integer, nullable=False, default=7)
+    region = db.Column(db.String(20), nullable=True)  # Added for region information
     tags = db.Column(db.JSON, nullable=True)
 
     def __repr__(self):
-        return f'<Backup {self.snapshot_id} for {self.instance_id}>'
+        return f'<Backup {self.ami_id} for {self.instance_id}>'
 
 class AWSCredential(db.Model):
     """AWS Credentials model for storing reusable AWS credentials"""

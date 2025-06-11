@@ -4,13 +4,14 @@
 <div class="content">
   <!-- Summary Stats Section -->
   <div class="section stats">
+    <!-- Update the stats section -->
     <div class="stat-card">
-      <h3>{{ last_Backup.snapshot_id if last_backup else 'N/A' }}</h3>
-      <p>Last Backup AMI ID</p>
+        <h3>{{ last_backup.ami_id if last_backup else 'N/A' }}</h3>
+        <p>Last Backup AMI ID</p>
     </div>
     <div class="stat-card">
-      <h3>{{ last_backup.timestamp if last_backup else 'N/A' }}</h3>
-      <p>Last Backup Time</p>
+        <h3>{{ last_backup.timestamp.strftime('%Y-%m-%d %H:%M:%S') if last_backup and last_backup.timestamp else 'N/A' }}</h3>
+        <p>Last Backup Time</p>
     </div>
     <div class="stat-card">
       <h3>{{ backups|length }}</h3>
@@ -115,46 +116,37 @@
           </tr>
         </thead>
         <tbody>
+          <!-- Update the table row rendering -->
           {% for b in backups %}
           <tr>
-            <td>{{ b.instance_id }}</td>
-            <td>{{ b.instance_name or 'N/A' }}</td>
-            <td>
-              {% if b.ami_id %}
-                <a href="https://console.aws.amazon.com/ec2/v2/home?region={{ b.region }}#ImageDetails:imageId={{ b.ami_id }}" target="_blank">{{ b.ami_id }}</a>
-              {% else %}
-                N/A
-              {% endif %}
-            </td>
-            <td>
-              {{ b.ami_name or 'N/A' }}
-            </td>
-             <td>{{ b.instance.backup_frequency if b.instance else 'N/A' }}</td>
-            <td>{{ b.timestamp or 'N/A' }}</td>
-            <td>
-              <span class="status-badge
-                {% if b.status == 'Success' %}status-success
-                {% elif b.status == 'Failed' %}status-failed
-                {% else %}status-pending{% endif %}">
-                {{ b.status }}
-              </span>
-            </td>
-            <td>{{ b.region or 'N/A' }}</td>
-            <td>
-              {% if b.ami_id %}
-                <a href="https://console.aws.amazon.com/ec2/v2/home?region={{ b.region }}#ImageDetails:imageId={{ b.ami_id }}" 
-                   target="_blank" style="text-decoration: none;">
-                  <button type="button" class="action-btn btn-small" title="View AMI">View AMI</button>
-                </a>
-                <!-- Delete AMI button -->
-                <form action="{{ url_for('delete_ami', ami_id=b.ami_id) }}" method="post" class="delete-ami-form" style="display:inline;">
-                  <button type="submit" class="action-btn action-danger btn-small" title="Delete AMI">Delete</button>
-                </form>
-              {% endif %}
-              {% if b.log_url %}
-                <a href="{{ b.log_url }}" class="action-btn" download>Download Log</a>
-              {% endif %}
-            </td>
+              <td>{{ b.instance_id }}</td>
+              <td>{{ b.instance_ref.instance_name if b.instance_ref else 'N/A' }}</td>
+              <td>
+                {% if b.ami_id %}
+                    <a href="https://console.aws.amazon.com/ec2/v2/home?region={{ b.region }}#ImageDetails:imageId={{ b.ami_id }}" target="_blank">{{ b.ami_id }}</a>
+                {% else %}
+                    N/A
+                {% endif %}
+              </td>
+              <td>{{ b.ami_name or 'N/A' }}</td>
+              <td>{{ b.instance_ref.backup_frequency if b.instance_ref else 'N/A' }}</td>
+              <td>{{ b.timestamp.strftime('%Y-%m-%d %H:%M:%S') if b.timestamp else 'N/A' }}</td>
+              <td>
+                <span class="status-badge {% if b.status == 'Success' %}status-success{% elif b.status == 'Failed' %}status-failed{% else %}status-pending{% endif %}">
+                    {{ b.status }}
+                </span>
+              </td>
+              <td>{{ b.region or 'N/A' }}</td>
+              <td>
+                {% if b.ami_id %}
+                    <a href="https://console.aws.amazon.com/ec2/v2/home?region={{ b.region }}#ImageDetails:imageId={{ b.ami_id }}" target="_blank" style="text-decoration: none;">
+                        <button type="button" class="action-btn btn-small" title="View AMI">View AMI</button>
+                    </a>
+                    <form action="{{ url_for('delete_ami', ami_id=b.ami_id) }}" method="post" class="delete-ami-form" style="display:inline;">
+                        <button type="submit" class="action-btn action-danger btn-small" title="Delete AMI">Delete</button>
+                    </form>
+                {% endif %}
+              </td>
           </tr>
           {% endfor %}
         </tbody>
