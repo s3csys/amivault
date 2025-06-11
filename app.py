@@ -1,24 +1,3 @@
-# import pyotp, qrcode, io, base64, boto3, pytz, os, csv, secrets, logging, json
-# from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify, send_file, make_response
-# from dotenv import load_dotenv
-# from models import db, User, Instance, BackupSettings, Backup, AWSCredential
-# from datetime import datetime, timezone, timedelta, UTC
-# from flask_apscheduler import APScheduler
-# from io import StringIO
-# from botocore.exceptions import ClientError, NoCredentialsError
-
-
-# from flask import Flask, render_template, request, redirect, url_for, flash, session, send_file, jsonify, make_response
-# from flask_sqlalchemy import SQLAlchemy
-# from werkzeug.security import generate_password_hash, check_password_hash
-# from datetime import datetime, timezone, timedelta, UTC
-# from flask_apscheduler import APScheduler
-# from io import StringIO
-# from dotenv import load_dotenv
-
-# Remove this line
-# from flask_sqlalchemy import SQLAlchemy
-
 # Keep or add these imports
 import pyotp, qrcode, io, base64, boto3, pytz, os, csv, secrets, logging, json
 from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify, send_file, make_response
@@ -83,80 +62,23 @@ def parse_cron_expression(cron_str):
     except ValueError:
         raise ValueError(f"Invalid cron expression format: {cron_str}")
 
-def schedule_instance_backup(instance):
-    """Schedule backup for a single instance using either Python scheduler or EventBridge"""
-    try:
-        # Remove any existing schedules for this instance
-        job_id = f"backup_{instance.instance_id}"
-        if scheduler.get_job(job_id):
-            scheduler.remove_job(job_id)
-
-        # Schedule the backup based on scheduler_type
-        if instance.scheduler_type == 'python':
-            # Schedule with Flask-APScheduler
-            if instance.backup_frequency.startswith('@'):
-                # Handle interval-based schedules
-                interval = instance.backup_frequency[1:]
-                scheduler.add_job(
-                    id=job_id,
-                    func=backup_instance,
-                    args=[instance.instance_id],
-                    trigger='interval',
-                    hours=int(interval),
-                    replace_existing=True
-                )
-            else:
-                # Handle cron-based schedules
-                cron_kwargs = parse_cron_expression(instance.backup_frequency)
-                scheduler.add_job(
-                    id=job_id,
-                    func=backup_instance,
-                    args=[instance.instance_id],
-                    trigger='cron',
-                    replace_existing=True,
-                    **cron_kwargs
-                )
-            logger.info(f"Scheduled Python backup job for instance {instance.instance_id}")
-
-    except Exception as e:
-        logger.error(f"Failed to schedule backup for instance {instance.instance_id}: {e}")
-        raise
-
-def schedule_all_instance_backups():
-    """Schedule backups for all active instances"""
-    try:
-        # Clear existing jobs first
-        scheduler.remove_all_jobs()
+# # Initialize database and scheduler after app starts
+# with app.app_context():
+#     try:
+#         # Create database tables
+#         db.create_all()
+#         logger.info("✅ Database tables created successfully")
         
-        # Get active instances
-        instances = Instance.query.filter_by(is_active=True).all()
-        for instance in instances:
-            try:
-                schedule_instance_backup(instance)
-                logger.info(f"Initialized backup schedule for instance {instance.instance_id}")
-            except Exception as e:
-                logger.error(f"Failed to initialize backup schedule for instance {instance.instance_id}: {e}")
-        logger.info(f"Initialized backup schedules for {len(instances)} instances")
-    except Exception as e:
-        logger.error(f"Error scheduling instance backups: {e}")
-
-# Initialize database and scheduler after app starts
-with app.app_context():
-    try:
-        # Create database tables
-        db.create_all()
-        logger.info("✅ Database tables created successfully")
-        
-        # Initialize scheduler
-        if not scheduler.running:
-            scheduler.start()
-            logger.info("✅ Scheduler started successfully")
+#         # Initialize scheduler
+#         if not scheduler.running:
+#             scheduler.start()
+#             logger.info("✅ Scheduler started successfully")
             
-            # Schedule backups for active instances
-            schedule_all_instance_backups()
+#             # Schedule backups for active instances
+#             schedule_all_instance_backups()
             
-    except Exception as e:
-        logger.error(f"Error during initialization: {e}")
+#     except Exception as e:
+#         logger.error(f"Error during initialization: {e}")
 
 # App configuration
 app.config.update(
@@ -342,190 +264,157 @@ app.config.update(
 
 ############################################################ Scheduler Functions ############################################################
 
-def create_backup(instance_id):
-    """Create backup for an instance (called by scheduler)"""
-    with app.app_context():
+# def create_backup(instance_id):
+#     """Create backup for an instance (called by scheduler)"""
+#     with app.app_context():
+#         try:
+#             # Get instance and global settings
+#             inst = Instance.query.filter_by(instance_id=instance_id, is_active=True).first()
+#             if not inst:
+#                 logger.error(f"Instance {instance_id} not found or inactive")
+#                 return
+
+#             global_config = BackupSettings.query.first()
+#             if not global_config:
+#                 logger.error("Global backup settings not found")
+#                 return
+
+#             # Get effective retention days
+#             retention_days = get_effective_setting(
+#                 inst.retention_days,
+#                 global_config.retention_days
+#             )
+
+#             # Create AMI backup
+#             ec2_client = boto3.client(
+#                 'ec2',
+#                 region_name=inst.region,
+#                 aws_access_key_id=inst.access_key,
+#                 aws_secret_access_key=inst.secret_key
+#             )
+
+#             # Generate AMI name with timestamp
+#             timestamp_str = datetime.now(pytz.UTC).strftime("%Y%m%d_%H%M%S")
+#             ami_name = f"{inst.instance_name}_{timestamp_str}_backup"
+
+#             # Create backup record
+#             backup = Backup(
+#                 instance_id=instance_id,
+#                 instance_name=inst.instance_name,
+#                 ami_name=ami_name,
+#                 timestamp=datetime.now(UTC),
+#                 status='Pending',
+#                 region=inst.region,
+#                 retention_days=retention_days,
+#                 backup_type='scheduled'
+#             )
+#             db.session.add(backup)
+#             db.session.commit()
+
+#             try:
+#                 # Create AMI
+#                 response = ec2_client.create_image(
+#                     InstanceId=instance_id,
+#                     Name=ami_name,
+#                     Description=f"Scheduled backup created at {timestamp_str}",
+#                     NoReboot=True
+#                 )
+
+#                 ami_id = response['ImageId']
+#                 Backup.snapshot_id = ami_id
+#                 backup.status = 'Success'
+#                 db.session.commit()
+
+#                 logger.info(f"Successfully created backup AMI {ami_id} for instance {instance_id}")
+
+#             except Exception as e:
+#                 backup.status = 'Failed'
+#                 backup.error_message = str(e)
+#                 db.session.commit()
+#                 logger.error(f"Failed to create backup for instance {instance_id}: {e}")
+#                 raise
+
+#         except Exception as e:
+#             logger.error(f"Error in create_backup for instance {instance_id}: {e}")
+#             raise
+def parse_cron_expression(cron_str):
+    """Parse a cron expression into kwargs for APScheduler"""
+    if not cron_str or not isinstance(cron_str, str):
+        raise ValueError("Invalid cron expression")
+
+    # Handle interval format
+    if cron_str.startswith('@'):
         try:
-            # Get instance and global settings
-            inst = Instance.query.filter_by(instance_id=instance_id, is_active=True).first()
-            if not inst:
-                logger.error(f"Instance {instance_id} not found or inactive")
-                return
+            hours = int(cron_str[1:])
+            return {'trigger': 'interval', 'hours': hours}
+        except ValueError:
+            raise ValueError(f"Invalid interval value: {cron_str}")
 
-            global_config = BackupSettings.query.first()
-            if not global_config:
-                logger.error("Global backup settings not found")
-                return
-
-            # Get effective retention days
-            retention_days = get_effective_setting(
-                inst.retention_days,
-                global_config.retention_days
-            )
-
-            # Create AMI backup
-            ec2_client = boto3.client(
-                'ec2',
-                region_name=inst.region,
-                aws_access_key_id=inst.access_key,
-                aws_secret_access_key=inst.secret_key
-            )
-
-            # Generate AMI name with timestamp
-            timestamp_str = datetime.now(pytz.UTC).strftime("%Y%m%d_%H%M%S")
-            ami_name = f"{inst.instance_name}_{timestamp_str}_backup"
-
-            # Create backup record
-            backup = Backup(
-                instance_id=instance_id,
-                instance_name=inst.instance_name,
-                ami_name=ami_name,
-                timestamp=datetime.now(UTC),
-                status='Pending',
-                region=inst.region,
-                retention_days=retention_days,
-                backup_type='scheduled'
-            )
-            db.session.add(backup)
-            db.session.commit()
-
-            try:
-                # Create AMI
-                response = ec2_client.create_image(
-                    InstanceId=instance_id,
-                    Name=ami_name,
-                    Description=f"Scheduled backup created at {timestamp_str}",
-                    NoReboot=True
-                )
-
-                ami_id = response['ImageId']
-                Backup.snapshot_id = ami_id
-                backup.status = 'Success'
-                db.session.commit()
-
-                logger.info(f"Successfully created backup AMI {ami_id} for instance {instance_id}")
-
-            except Exception as e:
-                backup.status = 'Failed'
-                backup.error_message = str(e)
-                db.session.commit()
-                logger.error(f"Failed to create backup for instance {instance_id}: {e}")
-                raise
-
-        except Exception as e:
-            logger.error(f"Error in create_backup for instance {instance_id}: {e}")
-            raise
+    # Parse standard cron expression
+    try:
+        minute, hour, day, month, day_of_week = cron_str.split()
+        return {
+            'minute': minute,
+            'hour': hour,
+            'day': day,
+            'month': month,
+            'day_of_week': day_of_week
+        }
+    except ValueError:
+        raise ValueError(f"Invalid cron expression format: {cron_str}")
 
 def schedule_instance_backup(instance):
-    """Schedule backup job for an instance using specified scheduler type"""
+    """Schedule backup for a single instance using either Python scheduler or EventBridge"""
     try:
-        job_id = f'backup-{instance.instance_id}'
-        
-        # Remove existing schedules first
-        try:
-            # Remove APScheduler job
+        # Remove any existing schedules for this instance
+        job_id = f"backup_{instance.instance_id}"
+        if scheduler.get_job(job_id):
             scheduler.remove_job(job_id)
-        except Exception:
-            pass
-            
-        try:
-            # Remove EventBridge rule
-            eventbridge_client = boto3.client(
-                'events',
-                region_name=instance.region,
-                aws_access_key_id=instance.access_key,
-                aws_secret_access_key=instance.secret_key
-            )
-            eventbridge_client.delete_rule(Name=job_id, Force=True)
-        except Exception:
-            pass
-        
-        # Create schedule based on type
-        if instance.scheduler_type == 'eventbridge':
-            # Create EventBridge schedule
-            if instance.backup_frequency.isdigit():
-                # Convert minutes to rate expression
-                minutes = int(instance.backup_frequency)
-                schedule_expression = f"rate({minutes} minutes)"
-            else:
-                # Convert cron expression to AWS cron
-                cron_parts = instance.backup_frequency.strip().split()
-                if len(cron_parts) != 5:
-                    raise ValueError(f"Invalid cron expression: {instance.backup_frequency}")
-                schedule_expression = f"cron({cron_parts[0]} {cron_parts[1]} {cron_parts[2]} {cron_parts[3]} {cron_parts[4]} ? *)"
-            
-            # Create EventBridge rule
-            response = eventbridge_client.put_rule(
-                Name=job_id,
-                ScheduleExpression=schedule_expression,
-                State='ENABLED',
-                Description=f"Backup schedule for {instance.instance_name} ({instance.instance_id})"
-            )
-            
-            # Create target for the rule
-            target_input = {
-                'instance_id': instance.instance_id,
-                'instance_name': instance.instance_name,
-                'region': instance.region
-            }
-            
-            eventbridge_client.put_targets(
-                Rule=job_id,
-                Targets=[
-                    {
-                        'Id': f"{job_id}-target",
-                        'Arn': response['RuleArn'],
-                        'Input': json.dumps(target_input)
-                    }
-                ]
-            )
-            
-            logger.info(f"Scheduled EventBridge backup job for instance {instance.instance_id} with {schedule_expression}")
-            
-        else:  # Python scheduler
-            # Schedule with APScheduler
-            if instance.backup_frequency.isdigit():
+
+        # Schedule the backup based on scheduler_type
+        if instance.scheduler_type == 'python':
+            # Schedule with Flask-APScheduler
+            if instance.backup_frequency.startswith('@'):
+                # Handle interval-based schedules
+                interval = instance.backup_frequency[1:]
                 scheduler.add_job(
-                    func=create_backup,
-                    trigger='interval',
-                    minutes=int(instance.backup_frequency),
                     id=job_id,
-                    name=f'Backup {instance.instance_name}',
+                    func=backup_instance,  # Using your existing backup_instance function
                     args=[instance.instance_id],
+                    trigger='interval',
+                    hours=int(interval),
                     replace_existing=True
                 )
             else:
+                # Handle cron-based schedules
+                cron_kwargs = parse_cron_expression(instance.backup_frequency)
                 scheduler.add_job(
-                    func=create_backup,
-                    trigger='cron',
                     id=job_id,
-                    name=f'Backup {instance.instance_name}',
+                    func=backup_instance,  # Using your existing backup_instance function
                     args=[instance.instance_id],
+                    trigger='cron',
                     replace_existing=True,
-                    **parse_cron_expression(instance.backup_frequency)
+                    **cron_kwargs
                 )
-            
-            logger.info(f"Scheduled Python backup job for instance {instance.instance_id} with frequency {instance.backup_frequency}")
-        
-        return True
-        
+            logger.info(f"Scheduled Python backup job for instance {instance.instance_id}")
+
     except Exception as e:
-        logger.error(f"Error scheduling backup for instance {instance.instance_id}: {e}")
+        logger.error(f"Failed to schedule backup for instance {instance.instance_id}: {e}")
         raise
 
-def parse_cron_expression(cron_str):
-    """Parse cron expression into kwargs for APScheduler"""
-    parts = cron_str.strip().split()
-    if len(parts) != 5:
-        raise ValueError("Invalid cron expression")
+# def parse_cron_expression(cron_str):
+#     """Parse cron expression into kwargs for APScheduler"""
+#     parts = cron_str.strip().split()
+#     if len(parts) != 5:
+#         raise ValueError("Invalid cron expression")
     
-    return {
-        'minute': parts[0],
-        'hour': parts[1],
-        'day': parts[2],
-        'month': parts[3],
-        'day_of_week': parts[4]
-    }
+#     return {
+#         'minute': parts[0],
+#         'hour': parts[1],
+#         'day': parts[2],
+#         'month': parts[3],
+#         'day_of_week': parts[4]
+#     }
 
 def reschedule_instance_backup(instance):
     """Reschedule backup job for an instance"""
@@ -1376,30 +1265,30 @@ def delete_aws_credential(credential_id):
     
     return redirect(url_for('aws_instances'))
 
-@app.route('/delete-aws-credential/<int:credential_id>', methods=['POST'])
-def delete_aws_credential_ajax(credential_id):
-    """Delete an AWS credential set via AJAX"""
-    if 'username' not in session:
-        return jsonify({'success': False, 'error': 'Not authenticated'})
+# @app.route('/delete-aws-credential/<int:credential_id>', methods=['POST'])
+# def delete_aws_credential_ajax(credential_id):
+#     """Delete an AWS credential set via AJAX"""
+#     if 'username' not in session:
+#         return jsonify({'success': False, 'error': 'Not authenticated'})
     
-    try:
-        # credential = AWSCredential.query.get(credential_id)
-        credential = db.session.get(AWSCredential, credential_id)
-        if not credential:
-            return jsonify({'success': False, 'error': 'AWS credential not found'})
+#     try:
+#         # credential = AWSCredential.query.get(credential_id)
+#         credential = db.session.get(AWSCredential, credential_id)
+#         if not credential:
+#             return jsonify({'success': False, 'error': 'AWS credential not found'})
         
-        # Check if credential is in use
-        instances = Instance.query.filter_by(access_key=credential.access_key, secret_key=credential.secret_key).all()
-        if instances:
-            return jsonify({'success': False, 'error': 'Cannot delete credential that is in use by instances'})
+#         # Check if credential is in use
+#         instances = Instance.query.filter_by(access_key=credential.access_key, secret_key=credential.secret_key).all()
+#         if instances:
+#             return jsonify({'success': False, 'error': 'Cannot delete credential that is in use by instances'})
         
-        db.session.delete(credential)
-        db.session.commit()
-        return jsonify({'success': True})
+#         db.session.delete(credential)
+#         db.session.commit()
+#         return jsonify({'success': True})
         
-    except Exception as e:
-        logger.error(f"Error deleting AWS credential: {e}")
-        return jsonify({'success': False, 'error': str(e)})
+#     except Exception as e:
+#         logger.error(f"Error deleting AWS credential: {e}")
+#         return jsonify({'success': False, 'error': str(e)})
 
 ############################################################ AWS Instances ############################################################
 
@@ -2014,17 +1903,17 @@ def export_instances():
 
 ############################################################ Backup Scheduling Helper Functions ############################################################
 
-def schedule_instance_backup(instance):
-    """Schedule backup job for a specific instance"""
-    try:
-        # This would integrate with your scheduler (APScheduler, Celery, etc.)
-        # Implementation depends on your scheduling mechanism
-        logger.info(f"Scheduling backup for instance {instance.instance_id} with frequency {instance.backup_frequency}")
-        # Add actual scheduling logic here
-        pass
-    except Exception as e:
-        logger.error(f"Error scheduling backup for {instance.instance_id}: {e}")
-        raise
+# def schedule_instance_backup(instance):
+#     """Schedule backup job for a specific instance"""
+#     try:
+#         # This would integrate with your scheduler (APScheduler, Celery, etc.)
+#         # Implementation depends on your scheduling mechanism
+#         logger.info(f"Scheduling backup for instance {instance.instance_id} with frequency {instance.backup_frequency}")
+#         # Add actual scheduling logic here
+#         pass
+#     except Exception as e:
+#         logger.error(f"Error scheduling backup for {instance.instance_id}: {e}")
+#         raise
 
 
 def remove_instance_backup_schedule(instance_id):
@@ -2595,7 +2484,7 @@ def backup_instance(instance_id):
             # Update backup record
             end_time = datetime.now(UTC)
             backup.status = 'Success'
-            Backup.snapshot_id = ami_id
+            backup.snapshot_id = ami_id
             backup.duration_seconds = int((end_time - start_time).total_seconds())
             db.session.commit()
             
@@ -2621,86 +2510,6 @@ def backup_instance(instance_id):
                 backup.status = 'Failed'
                 backup.error_message = error_msg
                 db.session.commit()
-
-
-def schedule_all_instance_backups():
-    """Schedule backup jobs for all active instances"""
-    with app.app_context():
-        try:
-            global_config = BackupSettings.query.first()
-            instances = Instance.query.filter_by(is_active=True).all()
-            scheduled_ids = set()
-            
-            logger.info(f"Scheduling backups for {len(instances)} instances")
-            
-            for inst in instances:
-                job_id = f"backup_{inst.instance_id}"
-                scheduled_ids.add(job_id)
-                
-                # Remove existing job
-                try:
-                    scheduler.remove_job(job_id)
-                    logger.debug(f"Removed existing job: {job_id}")
-                except Exception:
-                    pass  # Job didn't exist
-                
-                # Get effective backup frequency
-                freq = get_effective_setting(
-                    getattr(inst, 'backup_frequency', None),
-                    global_config.backup_frequency if global_config else "0 2 * * *"
-                )
-                
-                logger.debug(f"Scheduling {inst.instance_id} with frequency: {freq}")
-                
-                # Try to parse as minutes first, then as cron
-                try:
-                    freq_int = int(freq)
-                    if freq_int > 0:
-                        scheduler.add_job(
-                            id=job_id,
-                            func=backup_instance,
-                            args=[inst.instance_id],
-                            trigger='interval',
-                            minutes=freq_int,
-                            replace_existing=True
-                        )
-                        logger.info(f"Scheduled backup for {inst.instance_id} every {freq_int} minutes")
-                except ValueError:
-                    # Parse as cron expression
-                    cron_parts = str(freq).strip().split()
-                    if len(cron_parts) == 5:
-                        scheduler.add_job(
-                            id=job_id,
-                            func=backup_instance,
-                            args=[inst.instance_id],
-                            trigger='cron',
-                            minute=cron_parts[0],
-                            hour=cron_parts[1],
-                            day=cron_parts[2],
-                            month=cron_parts[3],
-                            day_of_week=cron_parts[4],
-                            replace_existing=True
-                        )
-                        logger.info(f"Scheduled backup for {inst.instance_id} with cron: {freq}")
-                    else:
-                        logger.error(f"Invalid backup frequency for {inst.instance_id}: {freq}")
-            
-            # Clean up orphaned jobs
-            current_jobs = {job.id for job in scheduler.get_jobs()}
-            for job_id in current_jobs:
-                if job_id.startswith("backup_") and job_id not in scheduled_ids:
-                    try:
-                        scheduler.remove_job(job_id)
-                        logger.info(f"Removed orphaned job: {job_id}")
-                    except Exception as e:
-                        logger.warning(f"Could not remove orphaned job {job_id}: {e}")
-            
-            active_jobs = len([job for job in scheduler.get_jobs() if job.id.startswith("backup_")])
-            logger.info(f"Backup scheduling completed. Active backup jobs: {active_jobs}")
-            
-        except Exception as e:
-            logger.error(f"Error in schedule_all_instance_backups: {e}")
-
 
 @app.route('/reschedule-backups', methods=['POST'])
 def reschedule_backups():
@@ -3890,6 +3699,49 @@ def update_backup_settings():
 
 ############################################################ Scheduler Functions ############################################################
 
+# def schedule_all_instance_backups():
+#     """Schedule backup jobs for all active instances using both APScheduler and EventBridge"""
+#     try:
+#         # Clear existing APScheduler jobs
+#         scheduler.remove_all_jobs()
+#         logger.info("Cleared all existing APScheduler jobs")
+        
+#         # Get global backup settings
+#         global_settings = BackupSettings.query.first()
+#         if not global_settings:
+#             logger.warning("No global backup settings found")
+#             return
+        
+#         # Schedule jobs for each active instance
+#         active_instances = Instance.query.filter_by(is_active=True).all()
+#         success_count = 0
+        
+#         for instance in active_instances:
+#             try:
+#                 # Use instance-specific frequency or fall back to global
+#                 frequency = get_effective_setting(
+#                     instance.backup_frequency, 
+#                     global_settings.backup_frequency
+#                 )
+                
+#                 if not frequency:
+#                     logger.warning(f"No backup frequency configured for instance {instance.instance_id}")
+#                     continue
+                
+#                 # Schedule using both APScheduler and EventBridge
+#                 schedule_instance_backup(instance)
+#                 success_count += 1
+#                 logger.info(f"Scheduled backup for instance {instance.instance_id} with frequency {frequency}")
+                
+#             except Exception as e:
+#                 logger.error(f"Error scheduling backup for {instance.instance_id}: {e}")
+#                 continue
+        
+#         logger.info(f"Successfully scheduled backup jobs for {success_count} out of {len(active_instances)} instances")
+        
+#     except Exception as e:
+#         logger.error(f"Error in schedule_all_instance_backups: {e}")
+
 def schedule_all_instance_backups():
     """Schedule backup jobs for all active instances using both APScheduler and EventBridge"""
     try:
@@ -3911,27 +3763,57 @@ def schedule_all_instance_backups():
             try:
                 # Use instance-specific frequency or fall back to global
                 frequency = get_effective_setting(
-                    instance.backup_frequency, 
+                    instance.backup_frequency,
                     global_settings.backup_frequency
                 )
                 
-                if not frequency:
-                    logger.warning(f"No backup frequency configured for instance {instance.instance_id}")
-                    continue
+                # Create job ID
+                job_id = f"backup_{instance.instance_id}"
                 
-                # Schedule using both APScheduler and EventBridge
-                schedule_instance_backup(instance)
+                # Schedule based on frequency type
+                if frequency.startswith('@'):
+                    # Handle interval-based schedules
+                    try:
+                        hours = int(frequency[1:])
+                        scheduler.add_job(
+                            id=job_id,
+                            func=backup_instance,
+                            args=[instance.instance_id],
+                            trigger='interval',
+                            hours=hours,
+                            replace_existing=True
+                        )
+                    except ValueError as e:
+                        logger.error(f"Invalid interval value for instance {instance.instance_id}: {e}")
+                        continue
+                else:
+                    # Handle cron-based schedules
+                    try:
+                        cron_kwargs = parse_cron_expression(frequency)
+                        scheduler.add_job(
+                            id=job_id,
+                            func=backup_instance,
+                            args=[instance.instance_id],
+                            trigger='cron',
+                            replace_existing=True,
+                            **cron_kwargs
+                        )
+                    except ValueError as e:
+                        logger.error(f"Invalid cron expression for instance {instance.instance_id}: {e}")
+                        continue
+                
                 success_count += 1
-                logger.info(f"Scheduled backup for instance {instance.instance_id} with frequency {frequency}")
+                logger.info(f"Successfully scheduled backup for instance {instance.instance_id}")
                 
             except Exception as e:
-                logger.error(f"Error scheduling backup for {instance.instance_id}: {e}")
+                logger.error(f"Failed to schedule backup for instance {instance.instance_id}: {e}")
                 continue
         
-        logger.info(f"Successfully scheduled backup jobs for {success_count} out of {len(active_instances)} instances")
+        logger.info(f"Successfully scheduled backups for {success_count} out of {len(active_instances)} instances")
         
     except Exception as e:
         logger.error(f"Error in schedule_all_instance_backups: {e}")
+        raise
 
 
 def perform_backup(instance_id):
@@ -4418,34 +4300,67 @@ def api_refresh_schedules():
 
 ############################################################ Application Startup ############################################################
 
+# def init_app():
+#     """Initialize the application"""
+#     with app.app_context():
+#         try:
+#             # Create database tables
+#             db.create_all()
+            
+#             # Initialize database with default data
+#             if not init_database():
+#                 logger.error("Failed to initialize database")
+#                 return False
+            
+#             # Start scheduler if not running
+#             if not scheduler.running:
+#                 scheduler.start()
+#                 schedule_all_instance_backups()
+#                 logger.info("✅ Backup scheduler started successfully")
+            
+#             return True
+#         except Exception as e:
+#             logger.error(f"Error initializing application: {e}")
+#             return False
+
+# if __name__ == '__main__':
+#     try:
+#         if init_app():
+#             logger.info("🚀 Starting AWS Backup Manager")
+#             app.run(host="0.0.0.0", port=5000)
+#     except Exception as e:
+#         logger.error(f"Error starting application: {e}")
+#     finally:
+#         # Cleanup scheduler on exit
+#         if scheduler.running:
+#             scheduler.shutdown()
+#             logger.info("Scheduler shutdown complete")
+
 def init_app():
-    """Initialize the application"""
-    with app.app_context():
-        try:
-            # Create database tables
-            db.create_all()
+    try:
+        # Create database tables
+        db.create_all()
+        logger.info("✅ Database tables created successfully")
+        
+        # Initialize scheduler
+        if not scheduler.running:
+            scheduler.start()
+            logger.info("✅ Scheduler started successfully")
             
-            # Initialize database with default data
-            if not init_database():
-                logger.error("Failed to initialize database")
-                return False
+            # Schedule backups for active instances
+            schedule_all_instance_backups()
             
-            # Start scheduler if not running
-            if not scheduler.running:
-                scheduler.start()
-                schedule_all_instance_backups()
-                logger.info("✅ Backup scheduler started successfully")
-            
-            return True
-        except Exception as e:
-            logger.error(f"Error initializing application: {e}")
-            return False
+        return True
+    except Exception as e:
+        logger.error(f"Error during initialization: {e}")
+        return False
 
 if __name__ == '__main__':
     try:
-        if init_app():
-            logger.info("🚀 Starting AWS Backup Manager")
-            app.run(host="0.0.0.0", port=5000)
+        with app.app_context():
+            if init_app():
+                logger.info("🚀 Starting AWS Backup Manager")
+                app.run(host="0.0.0.0", port=5000)
     except Exception as e:
         logger.error(f"Error starting application: {e}")
     finally:
