@@ -197,9 +197,19 @@
         <div class="schedule-card">
             <div class="schedule-header">
                 <h3 class="schedule-title">{{ instance.instance_name }}</h3>
-                <span class="status-badge {{ 'status-active' if instance.rule_status.state == 'ENABLED' else 'status-disabled' if instance.rule_status.state == 'DISABLED' else 'status-pending' }}">
+                <span class="status-badge
+                {% if instance.scheduler_type == 'eventbridge' %}
+                    {{ 'status-active' if instance.rule_status.state == 'ENABLED' else 'status-disabled' if instance.rule_status.state == 'DISABLED' else 'status-pending' }}
+                {% else %}
+                    {{ 'status-active' if instance.is_active == 1 else 'status-disabled' }}
+                {% endif %}
+            ">
+                {% if instance.scheduler_type == 'eventbridge' %}
                     {{ instance.rule_status.state if instance.rule_status.exists else 'NOT CONFIGURED' }}
-                </span>
+                {% else %}
+                    {{ 'ENABLED' if instance.is_active == 1 else 'DISABLED' }}
+                {% endif %}
+            </span>
             </div>
             
             <div class="schedule-details">

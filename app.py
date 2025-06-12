@@ -4078,6 +4078,7 @@ def schedules():
                         'state': 'ERROR'
                     }
                     schedule = instance.backup_frequency
+                    is_active = instance.is_active
                 
                 scheduled_instances.append({
                     'instance_id': instance.instance_id,
@@ -4088,7 +4089,8 @@ def schedules():
                     'timezone': timezone_info,
                     'next_run': next_run,
                     'rule_status': rule_status,
-                    'region': instance.region
+                    'region': instance.region,
+                    'is_active': instance.is_active
                 })
                 
             except Exception as e:
