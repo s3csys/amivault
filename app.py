@@ -1629,7 +1629,7 @@ def update_instance(instance_id):
         if old_frequency != backup_frequency:
             try:
                 reschedule_instance_backup(instance)
-                flash("Backup schedule updated", "info")
+                #1 flash("Backup schedule updated", "info")
             except Exception as e:
                 logger.warning(f"Could not reschedule backup for {instance_id}: {e}")
         
@@ -1982,18 +1982,20 @@ def bulk_export_amis():
         # Generate CSV
         si = StringIO()
         writer = csv.writer(si)
-        writer.writerow(['AMI ID', 'Instance Name', 'Instance ID', 'Region', 'Timestamp', 'Status', 'Backup Type', 'Retention Days'])
+        writer.writerow(['Instance ID', 'AMI ID', 'AMI Name', 'Region', 'Timestamp', 'Retention Days', 'Status'])
         
         for backup in backups:
             writer.writerow([
-                Backup.snapshot_id or 'N/A',
-                backup.instance_name,
                 backup.instance_id,
+                # backup.ami_id or 'N/A',
+                backup.ami_id,
+                # backup.instance_name,
+                backup.ami_name,
                 backup.region,
-                backup.formatted_timestamp,
-                backup.status,
-                backup.backup_type,
-                backup.retention_days
+                backup.timestamp,
+                backup.retention_days,
+                backup.status
+                # backup.backup_type,
             ])
         
         output = si.getvalue()
@@ -2494,11 +2496,11 @@ def backup_instance(instance_id):
             # db.session.refresh(backup)
             # backup.ami_id = ami_id
             # db.session.commit()
-            logger.info(f"Attempting to update AMI ID to: {ami_id}")
+            # logger.info(f"Attempting to update AMI ID to: {ami_id}")
             db.session.refresh(backup)
             backup.ami_id = ami_id
             db.session.commit()
-            logger.info(f"Successfully updated AMI ID to: {backup.ami_id}")
+            # logger.info(f"Successfully updated AMI ID to: {backup.ami_id}")
 
             # Tag the AMI
             ec2_client.create_tags(
@@ -2780,6 +2782,11 @@ def bulk_delete_amis():
                         if ami_response['Images']:
                             image = ami_response['Images'][0]
                             
+                            # Deregister AMI
+                            ec2_client.deregister_image(ImageId=backup.ami_id)
+                            deleted_amis.append(backup.ami_id)
+                            logger.info(f"Deleted AMI {backup.ami_id} for instance {inst_id}")
+                            
                             # Delete associated snapshots
                             for mapping in image.get('BlockDeviceMappings', []):
                                 ebs = mapping.get('Ebs')
@@ -2790,12 +2797,7 @@ def bulk_delete_amis():
                                     except ClientError as snap_e:
                                         if snap_e.response.get('Error', {}).get('Code') != 'InvalidSnapshot.NotFound':
                                             logger.warning(f"Could not delete snapshot {ebs['SnapshotId']}: {snap_e}")
-                            
-                            # Deregister AMI
-                            ec2_client.deregister_image(ImageId=backup.ami_id)
-                            deleted_amis.append(backup.ami_id)
-                            logger.info(f"Deleted AMI {backup.ami_id} for instance {inst_id}")
-                            
+
                     except ClientError as e:
                         error_code = e.response.get('Error', {}).get('Code', '')
                         if error_code == 'InvalidAMIID.NotFound':
