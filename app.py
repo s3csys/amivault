@@ -738,40 +738,40 @@ def instances():
     return render_template('instances.html', instances=instances)
 
 
-@app.route('/backups')
-def backups():
-    """List all backup records with filtering options"""
-    if 'username' not in session:
-        return redirect(url_for('login'))
+# @app.route('/backups')
+# def backups():
+#     """List all backup records with filtering options"""
+#     if 'username' not in session:
+#         return redirect(url_for('login'))
     
-    # Get filter parameters
-    status_filter = request.args.get('status')
-    instance_filter = request.args.get('instance')
-    page = request.args.get('page', 1, type=int)
-    per_page = 20
+#     # Get filter parameters
+#     status_filter = request.args.get('status')
+#     instance_filter = request.args.get('instance')
+#     page = request.args.get('page', 1, type=int)
+#     per_page = 20
     
-    # Build query
-    query = Backup.query
+#     # Build query
+#     query = Backup.query
     
-    if status_filter:
-        query = query.filter(Backup.status == status_filter)
+#     if status_filter:
+#         query = query.filter(Backup.status == status_filter)
     
-    if instance_filter:
-        query = query.filter(Backup.instance_id == instance_filter)
+#     if instance_filter:
+#         query = query.filter(Backup.instance_id == instance_filter)
     
-    # Paginate results
-    backups = query.order_by(Backup.timestamp.desc()).paginate(
-        page=page, per_page=per_page, error_out=False
-    )
+#     # Paginate results
+#     backups = query.order_by(Backup.timestamp.desc()).paginate(
+#         page=page, per_page=per_page, error_out=False
+#     )
     
-    # Get instances for filter dropdown
-    instances = Instance.query.filter_by(is_active=True).all()
+#     # Get instances for filter dropdown
+#     instances = Instance.query.filter_by(is_active=True).all()
     
-    return render_template('backups.html', 
-                         backups=backups, 
-                         instances=instances,
-                         current_status=status_filter,
-                         current_instance=instance_filter)
+#     return render_template('backups.html', 
+#                          backups=backups, 
+#                          instances=instances,
+#                          current_status=status_filter,
+#                          current_instance=instance_filter)
 
 
 @app.route('/settings', methods=['GET', 'POST'])
@@ -2872,7 +2872,7 @@ def delete_ami(ami_id):
         if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
             return jsonify({'success': False, 'error': 'Invalid AMI ID format'})
         flash("Invalid AMI ID format", "danger")
-        return redirect(url_for('backups'))
+        return redirect(url_for('dashboard'))
     
     # Find backup record
     backup = Backup.query.filter_by(ami_id=ami_id).first()
@@ -2882,7 +2882,7 @@ def delete_ami(ami_id):
         if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
             return jsonify({'success': False, 'error': error_msg})
         flash(error_msg, "danger")
-        return redirect(url_for('backups'))
+        return redirect(url_for('dashboard'))
     
     # Find associated instance for AWS credentials
     instance = Instance.query.filter_by(instance_id=backup.instance_id).first()
@@ -2892,7 +2892,7 @@ def delete_ami(ami_id):
         if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
             return jsonify({'success': False, 'error': error_msg})
         flash(error_msg, "danger")
-        return redirect(url_for('backups'))
+        return redirect(url_for('dashboard'))
     
     try:
         # Initialize EC2 client with instance credentials
@@ -2912,11 +2912,11 @@ def delete_ami(ami_id):
                 db.session.delete(backup)
                 db.session.commit()
                 
-                success_msg = f"AMI {ami_id} was already deleted from AWS. Database record cleaned up."
-                if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-                    return jsonify({'success': True, 'message': success_msg})
-                flash(success_msg, "info")
-                return redirect(url_for('backups'))
+                # success_msg = f"AMI {ami_id} was already deleted from AWS. Database record cleaned up."
+                # if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                    # return jsonify({'success': True, 'message': success_msg})
+                flash("success", "info")
+                return redirect(url_for('dashboard'))
                 
             image = images_response['Images'][0]
             
@@ -2932,7 +2932,7 @@ def delete_ami(ami_id):
                 if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
                     return jsonify({'success': True, 'message': success_msg})
                 flash(success_msg, "info")
-                return redirect(url_for('backups'))
+                return redirect(url_for('dashboard'))
             else:
                 raise  # Re-raise other ClientErrors
         
@@ -3024,7 +3024,7 @@ def delete_ami(ami_id):
         for msg in warning_messages:
             flash(msg, "warning")
         
-        return redirect(url_for('backups'))
+        return redirect(url_for('dashboard'))
         
     except NoCredentialsError:
         error_msg = "AWS credentials not found or invalid"
@@ -3032,7 +3032,7 @@ def delete_ami(ami_id):
         if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
             return jsonify({'success': False, 'error': error_msg})
         flash(error_msg, "danger")
-        return redirect(url_for('backups'))
+        return redirect(url_for('dashboard'))
         
     except ClientError as e:
         error_code = e.response.get('Error', {}).get('Code', '')
@@ -3042,7 +3042,7 @@ def delete_ami(ami_id):
         if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
             return jsonify({'success': False, 'error': error_msg})
         flash(error_msg, "danger")
-        return redirect(url_for('backups'))
+        return redirect(url_for('dashboard'))
         
     except Exception as e:
         error_msg = f"Unexpected error deleting AMI: {str(e)}"
@@ -3051,7 +3051,7 @@ def delete_ami(ami_id):
         if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
             return jsonify({'success': False, 'error': error_msg})
         flash(error_msg, "danger")
-        return redirect(url_for('backups'))
+        return redirect(url_for('dashboard'))
 
 
 @app.route('/delete-ami-bulk', methods=['POST'])
