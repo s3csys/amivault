@@ -184,6 +184,7 @@ def create_admin_user(username=None, password=None, email=None, profile_pic_url=
             print(f"✅ User '{username}' created successfully!")
             print(f"   📧 Email: {email}")
             print(f"   🔑 Password: {'*' * len(password)}")  # Don't show actual password
+            # print(f"   🔑 Password: Amiv@u1t")  # Don't show actual password
             if hasattr(user, 'created_at') and user.created_at:
                 print(f"   📅 Created: {user.created_at}")
             
@@ -294,6 +295,14 @@ def recreate_database(interactive=True):
             
             print("🔨 Creating all tables...")
             db.create_all()
+
+            #print("Creating the admin user with default password ...")
+            create_admin_user(
+                username='amivault',
+                password='Amiv@u1t',
+                email='admin@example.com',
+                interactive=False
+            )
             
             # Import required functions
             from app import schedule_all_instance_backups, scheduler
