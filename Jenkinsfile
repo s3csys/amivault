@@ -3,8 +3,8 @@ pipeline {
     environment {
         VENV_DIR = 'venv'
         DOCKER_IMAGE = 's3csys/amivault:latest'
-        FLASK_APP_PORT = '5310'
-        SERVER_IP = 'your.server.ip.address'
+        FLASK_APP_PORT = '5000'
+        SERVER_IP = '30.30.30.25'
     }
     triggers {
         pollSCM('H/2 * * * *')  
@@ -35,15 +35,24 @@ pipeline {
             steps {
                 sh '''
                     source ${VENV_DIR}/bin/activate
-                    pytest test_app.py 
+                    pytest test_app.py --junitxml=test-results.xml
                 '''
             }
         }
 
-        stage(Build Docker image) {
-            sh '''
-                docker build -t ${DOCKER_IMAGE}
-            '''
+        stage('Deployment') {
+            steps{
+                sshagent([]) {
+                    sh '''
+                    ssh -o StrictHostKeyChecking=no root@20.20.20.25 << EOf
+                    python3 -m venv ${VENV_DIR}
+                    source ${VENV_DIR}/bin/activate
+                    python3 helper.py --recreate-db
+                    python3 
+                    EOF
+                    '''
+                }
+            }
         }
     }
 
@@ -54,7 +63,7 @@ pipeline {
         }
         success {
             // Notify success
-            echo 'Deployment successful!'
+            echo "Deployment successful. The APIVAULT is available at http://${SERVER_IP}:${FLASK_APP_PORT}/"
         }
         failure {
             // Notify failure

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, UTC
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 import boto3
@@ -20,7 +20,7 @@ class User(db.Model):
     email = db.Column(db.String(120), nullable=False)
     two_factor_enabled = db.Column(db.Boolean, default=False, nullable=False)
     two_factor_secret = db.Column(db.String(32), nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), nullable=False)
     last_login = db.Column(db.DateTime, nullable=True)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
 
@@ -38,7 +38,7 @@ class User(db.Model):
     
     def update_last_login(self):
         """Update last login timestamp"""
-        self.last_login = datetime.utcnow()
+        self.last_login = datetime.now(UTC)
         db.session.commit()
 
     def __repr__(self):
@@ -57,8 +57,8 @@ class Instance(db.Model):
     region = db.Column(db.String(20), nullable=False)
     backup_frequency = db.Column(db.String(64), nullable=False, default="0 2 * * *")  # Daily at 2 AM
     retention_days = db.Column(db.Integer, nullable=False, default=7)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), nullable=False)
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
     scheduler_type = db.Column(db.String(20), default='python', nullable=False)  # 'python' or 'eventbridge'
     
@@ -120,8 +120,8 @@ class BackupSettings(db.Model):
     backup_frequency = db.Column(db.String(64), default="0 2 * * *", nullable=False)  # Daily at 2 AM
     instance_id = db.Column(db.String(64), nullable=False, default="global-config")
     instance_name = db.Column(db.String(128), default="Global Settings")
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), nullable=False)
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
     
     # Notification settings
     email_notifications = db.Column(db.Boolean, default=False)

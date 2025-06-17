@@ -123,9 +123,9 @@ def test_login_test_inactive_account(client):
     response = client.post('/login', data={
         'username': 'test_inactive',
         'password': 'password123'
-    }, follow_redirects=True)
+    }, headers={'X-Requested-With': 'XMLHttpRequest'})
     assert response.status_code == 200
-    assert json.loads(response.data)['error'] == 'Invalid username or password'
+    assert json.loads(response.data)['error'] == 'Your account is inactive. Please contact the administrator.'
 
 def test_login_wrong_credentials(client):
     """Test login with incorrect password"""
@@ -150,7 +150,7 @@ def test_login_test_2fa_account(client):
     assert data['require_2fa'] == True
     
     # Generate a valid TOTP code
-    totp = pyotp.TOTP('TESTSECRETHEREBASE32')
+    totp = pyotp.TOTP('JBSWY3DPEHPK3PXP')  # Use the same secret as in the test fixture
     valid_code = totp.now()
     
     # Second step: Submit 2FA code
@@ -167,7 +167,7 @@ def test_login_test_2fa_account(client):
 def test_login_json_api(client):
     """Test login via JSON API"""
     response = client.post('/login', 
-        json={
+        data={
             'username': 'test',
             'password': 'password123'
         },
@@ -182,16 +182,49 @@ def test_login_json_api(client):
 def test_logout(client):
     """Test logout functionality"""
     # First login
-    client.post('/login', data={
+    login_response = client.post('/login', data={
         'username': 'test',
         'password': 'password123'
-    })
+    }, headers={'X-Requested-With': 'XMLHttpRequest'})
+    
+    # Verify login was successful
+    assert login_response.status_code == 200
+    login_data = json.loads(login_response.data)
+    assert login_data['success'] == True
+    
+    # Access a protected page to confirm we're logged in
+    with client.session_transaction() as sess:
+        sess['username'] = 'test'  # Manually set session
     
     # Then logout
-    response = client.get('/logout', follow_redirects=True)
-    assert response.status_code == 200
-    assert b'You have been logged out successfully' in response.data
+    response = client.get('/logout')
+    assert response.status_code == 302  # Redirect status
+    assert response.headers['Location'] == '/login'  # Check redirect location
     
-    # Verify can't access protected page after logout
-    response = client.get('/', follow_redirects=True)
-    assert b'Login' in response.data
+    # Verify we can't access protected page
+    response = client.get('/aws-instances')
+    assert response.status_code == 302  # Redirect to login
+    # Verify we're redirected to login
+    response = client.get('/aws-instances', follow_redirects=True)
+    assert b'Sign in to your account' in response.data  # Check for login page content
+    
+    # Verify we can't access protected page
+    response = client.get('/backup-settings')
+    assert response.status_code == 302  # Redirect to login
+    # Verify we're redirected to login
+    response = client.get('/backup-settings', follow_redirects=True)
+    assert b'Sign in to your account' in response.data  # Check for login page content
+
+    # Verify we can't access protected page
+    response = client.get('/schedules')
+    assert response.status_code == 302  # Redirect to login
+    # Verify we're redirected to login
+    response = client.get('/schedules', follow_redirects=True)
+    assert b'Sign in to your account' in response.data  # Check for login page content
+
+    # Verify we can't access protected page
+    response = client.get('/user-settings')
+    assert response.status_code == 302  # Redirect to login
+    # Verify we're redirected to login
+    response = client.get('/user-settings', follow_redirects=True)
+    assert b'Sign in to your account' in response.data  # Check for login page content

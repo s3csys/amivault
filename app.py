@@ -595,9 +595,19 @@ def login():
             flash(error_msg, "danger")
             return render_template('login.html')
         
-        user = User.query.filter_by(username=username, is_active=True).first()
+        # First check if user exists without active filter
+        user = User.query.filter_by(username=username).first()
         
-        if user and user.check_password(password):
+        # Check if user exists but is inactive
+        if user and not user.is_active:
+            error_msg = "Your account is inactive. Please contact the administrator."
+            if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                return jsonify({'success': False, 'error': error_msg})
+            flash(error_msg, "warning")
+            return render_template('login.html')
+        
+        # Now check password for active user
+        if user and user.is_active and user.check_password(password):
             # Update last login timestamp
             user.update_last_login()
             
@@ -631,7 +641,13 @@ def login_2fa():
     if not pending_user:
         return jsonify({'success': False, 'error': 'No 2FA session found. Please login again.'})
     
-    user = User.query.filter_by(username=pending_user, is_active=True).first()
+    user = User.query.filter_by(username=pending_user).first()
+    
+    # Check if user exists but is inactive
+    if user and not user.is_active:
+        session.pop('pending_2fa_user', None)
+        return jsonify({'success': False, 'error': 'Your account is inactive. Please contact the administrator.'})
+    
     if not user or not user.two_factor_enabled or not user.two_factor_secret:
         session.pop('pending_2fa_user', None)
         return jsonify({'success': False, 'error': '2FA not properly configured for this user.'})
