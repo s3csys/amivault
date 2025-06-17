@@ -8,6 +8,18 @@ from io import StringIO
 from botocore.exceptions import ClientError, NoCredentialsError
 from models import db, User, Instance, BackupSettings, Backup, AWSCredential
 
+# Monkeypatch dateutil and pytz to fix deprecation warnings
+import dateutil.tz.tz
+import pytz.tzinfo
+
+# Fix dateutil.tz.tz.EPOCH
+original_epoch = dateutil.tz.tz.EPOCH
+dateutil.tz.tz.EPOCH = datetime.fromtimestamp(0, UTC)
+
+# Fix pytz.tzinfo._epoch
+original_pytz_epoch = pytz.tzinfo._epoch
+pytz.tzinfo._epoch = datetime.fromtimestamp(0, UTC)
+
 # Load environment variables from .env file
 load_dotenv()
 
