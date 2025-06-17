@@ -180,7 +180,7 @@
 <div class="page-header">
     <h1>Backup Schedules</h1>
     <div class="current-time">
-        Current Time: {{ current_time.strftime('%Y-%m-%d %H:%M:%S UTC') }}
+        Current Time: {{ current_time.strftime('%Y-%m-%d %H:%M:%S') }} {{ current_time.tzinfo.tzname(current_time) }}
     </div>
 </div>
 
@@ -241,7 +241,7 @@
                 {% if instance.next_run %}
                 <div class="detail-item">
                     <div class="detail-label">Next Backup</div>
-                    <div class="detail-value">{{ instance.next_run.strftime('%Y-%m-%d %H:%M:%S UTC') }}</div>
+                    <div class="detail-value">{{ instance.next_run.strftime('%Y-%m-%d %H:%M:%S') }} {{ instance.next_run.tzinfo.tzname(instance.next_run) }}</div>
                     <div class="next-run-highlight">
                         In {{ instance.next_run | time_until }}
                     </div>
@@ -288,7 +288,7 @@
                 <td>{{ rule.targets }}</td>
                 <td>
                     {% if rule.next_run %}
-                        {{ rule.next_run.strftime('%Y-%m-%d %H:%M:%S UTC') }}<br>
+                        {{ rule.next_run.strftime('%Y-%m-%d %H:%M:%S') }} {{ rule.next_run.tzinfo.tzname(rule.next_run) }}<br>
                         <small style="color: #6b7280;">({{ rule.next_run | time_until }})</small>
                     {% else %}
                         N/A

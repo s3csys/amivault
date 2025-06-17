@@ -4,6 +4,8 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import boto3
 from botocore.exceptions import ClientError, NoCredentialsError
 import logging
+import pytz
+from flask import current_app
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +40,7 @@ class User(db.Model):
     
     def update_last_login(self):
         """Update last login timestamp"""
+        # Keep using UTC for database timestamps for consistency
         self.last_login = datetime.now(UTC)
         db.session.commit()
 
@@ -144,8 +147,8 @@ class Backup(db.Model):
     ami_id = db.Column(db.String(50), nullable=True)  # Changed from snapshot_id
     ami_name = db.Column(db.String(100), nullable=True)  # Added for AMI name
     status = db.Column(db.String(20), nullable=False, default='pending')
-    timestamp = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)  # Added for backup timestamp
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    timestamp = db.Column(db.DateTime, default=lambda: datetime.now(UTC), nullable=False)  # Added for backup timestamp
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), nullable=False)
     completed_at = db.Column(db.DateTime, nullable=True)
     error_message = db.Column(db.Text, nullable=True)
     size_gb = db.Column(db.Float, nullable=True)
@@ -168,8 +171,8 @@ class AWSCredential(db.Model):
     secret_key = db.Column(db.String(100), nullable=False)
     region = db.Column(db.String(20), nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)  # Added user_id field
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), nullable=False)
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False)
     
     # Add relationship to User model
     user = db.relationship('User', backref=db.backref('aws_credentials', lazy=True))

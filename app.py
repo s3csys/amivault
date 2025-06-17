@@ -24,8 +24,134 @@ pytz.tzinfo._epoch = datetime.fromtimestamp(0, UTC)
 load_dotenv()
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+import os
+import logging
+import sys
+import io
+from logging.handlers import RotatingFileHandler
+
+# Get logging configuration from environment variables
+log_level = os.environ.get('LOG_LEVEL', 'INFO')
+log_dir = os.environ.get('LOG_DIR', 'logs')
+access_log = os.environ.get('ACCESS_LOG', 'access.log')
+error_log = os.environ.get('ERROR_LOG', 'error.log')
+app_log = os.environ.get('APP_LOG', 'app.log')
+log_format = os.environ.get('LOG_FORMAT', '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+log_date_format = os.environ.get('LOG_DATE_FORMAT', '%Y-%m-%d %H:%M:%S')
+log_max_bytes = int(os.environ.get('LOG_MAX_BYTES', 10485760))  # 10MB default
+log_backup_count = int(os.environ.get('LOG_BACKUP_COUNT', 5))  # 5 backups default
+
+# Create logs directory if it doesn't exist
+try:
+    log_dir_abs = os.path.abspath(log_dir)
+    if not os.path.exists(log_dir_abs):
+        os.makedirs(log_dir_abs)
+    print(f"Created logs directory at {log_dir_abs}")
+except Exception as e:
+    print(f"Error creating logs directory: {e}")
+    # Fall back to current directory
+    log_dir = '.'
+    log_dir_abs = os.path.abspath(log_dir)
+
+# Configure formatter
+formatter = logging.Formatter(log_format, log_date_format)
+
+# Configure root logger
+root_logger = logging.getLogger()
+root_logger.setLevel(getattr(logging, log_level))
+
+# Clear existing handlers to avoid duplicates
+for handler in root_logger.handlers[:]:  # Use a copy of the list
+    root_logger.removeHandler(handler)
+
+# Add console handler - use sys.stdout to avoid encoding issues
+console_handler = logging.StreamHandler(sys.stdout)
+console_handler.setFormatter(formatter)
+root_logger.addHandler(console_handler)
+
+# Function to safely create a file handler
+def create_file_handler(log_path, level, max_bytes, backup_count):
+    try:
+        # Ensure the directory exists
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
+        
+        # Create an empty file if it doesn't exist
+        if not os.path.exists(log_path):
+            with open(log_path, 'w', encoding='utf-8') as f:
+                pass
+        
+        # Create the handler with UTF-8 encoding
+        handler = RotatingFileHandler(
+            log_path,
+            maxBytes=max_bytes,
+            backupCount=backup_count,
+            encoding='utf-8'
+        )
+        handler.setFormatter(formatter)
+        handler.setLevel(level)
+        return handler
+    except Exception as e:
+        print(f"Error creating log file {log_path}: {e}")
+        return None
+
+try:
+    # Configure app logger for general application logs
+    app_log_path = os.path.join(log_dir_abs, app_log)
+    app_handler = create_file_handler(
+        app_log_path,
+        getattr(logging, log_level),
+        log_max_bytes,
+        log_backup_count
+    )
+    if app_handler:
+        root_logger.addHandler(app_handler)
+        print(f"App log file created at {app_log_path}")
+
+    # Configure error logger for error-level logs
+    error_log_path = os.path.join(log_dir_abs, error_log)
+    error_handler = create_file_handler(
+        error_log_path,
+        logging.ERROR,
+        log_max_bytes,
+        log_backup_count
+    )
+    if error_handler:
+        root_logger.addHandler(error_handler)
+        print(f"Error log file created at {error_log_path}")
+
+    # Configure access logger for Flask requests
+    access_log_path = os.path.join(log_dir_abs, access_log)
+    access_logger = logging.getLogger('werkzeug')
+    
+    # Remove existing handlers from werkzeug logger to avoid duplicates
+    for handler in access_logger.handlers[:]:
+        access_logger.removeHandler(handler)
+    
+    # Set propagate to False to prevent werkzeug logs from being sent to the root logger
+    access_logger.propagate = False
+    
+    access_handler = create_file_handler(
+        access_log_path,
+        logging.INFO,
+        log_max_bytes,
+        log_backup_count
+    )
+    if access_handler:
+        access_logger.addHandler(access_handler)
+        print(f"Access log file created at {access_log_path}")
+    
+    # Add a console handler for werkzeug logs
+    werkzeug_console = logging.StreamHandler(sys.stdout)
+    werkzeug_console.setFormatter(formatter)
+    access_logger.addHandler(werkzeug_console)
+
+except Exception as e:
+    print(f"Error setting up log files: {e}")
+    # Continue with console logging only
+
+# Create logger for this module
 logger = logging.getLogger(__name__)
+logger.info("Logging initialized at level {} with logs in {}".format(log_level, log_dir))
 
 app = Flask(__name__)
 
@@ -39,7 +165,7 @@ app.config.update(
         'pool_recycle': 300,
     },
     SCHEDULER_API_ENABLED=True,
-    SCHEDULER_TIMEZONE='UTC',
+    SCHEDULER_TIMEZONE=os.environ.get('SCHEDULER_TIMEZONE', 'UTC'),
     DEBUG=os.environ.get('FLASK_DEBUG', '0') == '1'
 )
 
@@ -3547,7 +3673,8 @@ def get_notifications():
     notifications = session.get('notifications', [])
     
     # Clean up old notifications (older than 1 hour for non-persistent ones)
-    current_time = datetime.now(UTC)
+    app_timezone = pytz.timezone(app.config['SCHEDULER_TIMEZONE'])
+    current_time = datetime.now(UTC).astimezone(app_timezone)
     filtered_notifications = []
     
     for notification in notifications:
@@ -4034,7 +4161,10 @@ def schedules():
         
         scheduled_instances = []
         eventbridge_rules = []
-        current_time = datetime.now(UTC)
+        
+        # Get the configured timezone from app config
+        app_timezone = pytz.timezone(app.config['SCHEDULER_TIMEZONE'])
+        current_time = datetime.now(UTC).astimezone(app_timezone)
         
         # Get all active instances
         instances = Instance.query.filter_by(is_active=True).all()
@@ -4076,7 +4206,7 @@ def schedules():
                 rule_status = None
                 schedule = None
                 next_run = None
-                timezone_info = 'UTC'
+                timezone_info = app.config['SCHEDULER_TIMEZONE']
                 
                 try:
                     # Try to get the backup rule
@@ -4225,6 +4355,11 @@ def calculate_next_run(schedule_expression, current_time):
                 # Simple next run calculation for common patterns
                 minute, hour, day, month, dow = cron_parts
                 
+                # Ensure we're working with a timezone-aware datetime
+                if current_time.tzinfo is None:
+                    app_timezone = pytz.timezone(app.config['SCHEDULER_TIMEZONE'])
+                    current_time = app_timezone.localize(current_time)
+                
                 next_run = current_time.replace(second=0, microsecond=0)
                 
                 # Handle daily backups (common case)
@@ -4291,7 +4426,8 @@ def time_until_filter(target_time):
         return None
     
     try:
-        now = datetime.now(UTC)
+        app_timezone = pytz.timezone(app.config['SCHEDULER_TIMEZONE'])
+        now = datetime.now(UTC).astimezone(app_timezone)
         if target_time <= now:
             return "Overdue"
         
@@ -4334,7 +4470,8 @@ def api_refresh_schedules():
     try:
         # Get fresh schedule data
         scheduled_instances = []
-        current_time = datetime.now(UTC)
+        app_timezone = pytz.timezone(app.config['SCHEDULER_TIMEZONE'])
+        current_time = datetime.now(UTC).astimezone(app_timezone)
         
         instances = Instance.query.filter_by(is_active=True).all()
         
@@ -4358,7 +4495,7 @@ def api_refresh_schedules():
         return jsonify({
             'scheduled_instances': scheduled_instances,
             'current_time': current_time.isoformat(),
-            'refresh_time': current_time.strftime('%Y-%m-%d %H:%M:%S UTC')
+            'refresh_time': current_time.strftime('%Y-%m-%d %H:%M:%S') + ' ' + current_time.tzinfo.tzname(current_time)
         })
     
     except Exception as e:
@@ -4409,6 +4546,24 @@ def init_app():
         db.create_all()
         logger.info("✅ Database tables created successfully")
         
+        # Create default admin user if it doesn't exist
+        admin_username = os.environ.get('ADMIN_USERNAME', 'admin')
+        admin_user = User.query.filter_by(username=admin_username).first()
+        
+        if not admin_user:
+            admin_password = os.environ.get('ADMIN_PASSWORD', 'Admin123!')
+            admin_email = os.environ.get('ADMIN_EMAIL', 'admin@example.com')
+            
+            admin_user = User(
+                username=admin_username,
+                email=admin_email,
+                is_active=True
+            )
+            admin_user.set_password(admin_password)
+            db.session.add(admin_user)
+            db.session.commit()
+            logger.info(f"✅ Default admin user '{admin_username}' created successfully")
+        
         # Initialize scheduler
         if not scheduler.running:
             scheduler.start()
@@ -4426,10 +4581,12 @@ if __name__ == '__main__':
     try:
         with app.app_context():
             if init_app():
-                logger.info("🚀 Starting AWS Backup Manager")
-                app.run(host="0.0.0.0", port=5000)
+                host = os.environ.get('FLASK_HOST', '0.0.0.0')
+                port = int(os.environ.get('FLASK_PORT', 5000))
+                logger.info("Starting AWS Backup Manager on {}:{}".format(host, port))
+                app.run(host=host, port=port)
     except Exception as e:
-        logger.error(f"Error starting application: {e}")
+        logger.error("Error starting application: {}".format(e))
     finally:
         # Cleanup scheduler on exit
         if scheduler.running:

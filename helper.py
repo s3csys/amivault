@@ -82,15 +82,23 @@ def create_admin_user(username=None, password=None, email=None, profile_pic_url=
         interactive (bool): Whether to prompt for input interactively
     """
     
-    # Get user input if not provided
+    # Get user input if not provided, check environment variables first
     if not username:
-        if interactive:
+        # Check environment variable first
+        env_username = os.environ.get('ADMIN_USERNAME')
+        if env_username:
+            username = env_username
+        elif interactive:
             username = input("Enter username (default: admin): ").strip() or "admin"
         else:
             username = "admin"
     
     if not email:
-        if interactive:
+        # Check environment variable first
+        env_email = os.environ.get('ADMIN_EMAIL')
+        if env_email and validate_email(env_email):
+            email = env_email
+        elif interactive:
             while True:
                 email = input("Enter email: ").strip()
                 if email and validate_email(email):
@@ -100,7 +108,11 @@ def create_admin_user(username=None, password=None, email=None, profile_pic_url=
             email = "admin@example.com"  # Default for non-interactive mode
     
     if not password:
-        if interactive:
+        # Check environment variable first
+        env_password = os.environ.get('ADMIN_PASSWORD')
+        if env_password and validate_password(env_password)[0]:
+            password = env_password
+        elif interactive:
             print("Password requirements:")
             print("- At least 8 characters")
             print("- At least one uppercase letter")
@@ -109,7 +121,7 @@ def create_admin_user(username=None, password=None, email=None, profile_pic_url=
             print("- At least one special character")
             password = get_secure_password()
         else:
-            print("❌ Password must be provided for non-interactive mode")
+            print("❌ Password must be provided for non-interactive mode or in ADMIN_PASSWORD environment variable")
             return None
     
     # Validate inputs
