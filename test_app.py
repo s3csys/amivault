@@ -1,8 +1,10 @@
 import pytest
-from app import app, db, User
+from app import app, db, User, AWSCredential, Instance
 from datetime import datetime, UTC
 import json
 import pyotp
+from unittest.mock import patch, MagicMock
+from botocore.exceptions import ClientError, NoCredentialsError
 
 @pytest.fixture
 def client():
@@ -397,3 +399,228 @@ def test_2fa_flow(client):
         user = User.query.filter_by(username='test').first()
         assert user.two_factor_enabled == False
         assert user.two_factor_secret is None
+
+# Test AWS credential validation
+@pytest.fixture
+def aws_credential():
+    """Create a test AWS credential"""
+    credential = AWSCredential(
+        name='Test Credential',
+        access_key='REMOVED_AWS_KEY',
+        secret_key='REMOVED_AWS_SECRET',
+        region='us-west-2',
+        user_id=1  # Admin user ID
+    )
+    return credential
+
+# Test check-instance route with direct credentials
+@patch('boto3.client')
+def test_check_instance_direct_credentials_success(mock_boto3_client, client):
+    """Test check-instance route with direct credentials - success case"""
+    # Setup mock EC2 client
+    mock_ec2 = MagicMock()
+    mock_boto3_client.return_value = mock_ec2
+    
+    # Mock the describe_instances response
+    mock_ec2.describe_instances.return_value = {
+        'Reservations': [{
+            'Instances': [{
+                'InstanceId': 'i-1234567890abcdef0',
+                'State': {'Name': 'running'},
+                'InstanceType': 't2.micro',
+                'Placement': {'AvailabilityZone': 'us-west-2a'},
+                'Tags': [{'Key': 'Name', 'Value': 'Test Instance'}],
+                'LaunchTime': datetime.now(UTC),
+                'VpcId': 'vpc-12345678',
+                'SubnetId': 'subnet-12345678',
+                'PrivateIpAddress': '10.0.0.1',
+                'PublicIpAddress': '54.123.456.789'
+            }]
+        }]
+    }
+    
+    # Login as admin
+    with client.session_transaction() as sess:
+        sess['username'] = 'admin'
+    
+    # Call check-instance route with direct credentials
+    response = client.post('/check-instance', json={
+        'instance_id': 'i-1234567890abcdef0',
+        'access_key': 'REMOVED_AWS_KEY',
+        'secret_key': 'REMOVED_AWS_SECRET',
+        'region': 'us-west-2'
+    })
+    
+    # Verify response
+    assert response.status_code == 200
+    data = json.loads(response.data)
+    assert data['success'] == True
+    assert data['instance_name'] == 'Test Instance'
+    assert data['instance_details']['instance_id'] == 'i-1234567890abcdef0'
+    assert data['instance_details']['state'] == 'running'
+    assert data['instance_details']['instance_type'] == 't2.micro'
+    assert data['instance_details']['region'] == 'us-west-2'
+    
+    # Verify boto3 client was called with correct parameters
+    mock_boto3_client.assert_called_once_with(
+        'ec2',
+        region_name='us-west-2',
+        aws_access_key_id='REMOVED_AWS_KEY',
+        aws_secret_access_key='REMOVED_AWS_SECRET',
+        config=mock_boto3_client.call_args[1]['config']
+    )
+    mock_ec2.describe_instances.assert_called_once_with(InstanceIds=['i-1234567890abcdef0'])
+
+# Test check-instance route with saved credentials
+@patch('boto3.client')
+def test_check_instance_saved_credentials_success(mock_boto3_client, client, aws_credential):
+    """Test check-instance route with saved credentials - success case"""
+    # Setup mock EC2 client
+    mock_ec2 = MagicMock()
+    mock_boto3_client.return_value = mock_ec2
+    
+    # Mock the describe_instances response
+    mock_ec2.describe_instances.return_value = {
+        'Reservations': [{
+            'Instances': [{
+                'InstanceId': 'i-1234567890abcdef0',
+                'State': {'Name': 'running'},
+                'InstanceType': 't2.micro',
+                'Placement': {'AvailabilityZone': 'us-west-2a'},
+                'Tags': [{'Key': 'Name', 'Value': 'Test Instance'}],
+                'LaunchTime': datetime.now(UTC),
+                'VpcId': 'vpc-12345678',
+                'SubnetId': 'subnet-12345678',
+                'PrivateIpAddress': '10.0.0.1',
+                'PublicIpAddress': '54.123.456.789'
+            }]
+        }]
+    }
+    
+    # Login as admin
+    with client.session_transaction() as sess:
+        sess['username'] = 'admin'
+    
+    # Add the credential to the database
+    with app.app_context():
+        db.session.add(aws_credential)
+        db.session.commit()
+        credential_id = aws_credential.id
+    
+    # Call check-instance route with saved credentials
+    response = client.post('/check-instance', json={
+        'instance_id': 'i-1234567890abcdef0',
+        'credential_id': credential_id
+    })
+    
+    # Verify response
+    assert response.status_code == 200
+    data = json.loads(response.data)
+    assert data['success'] == True
+    assert data['instance_name'] == 'Test Instance'
+    
+    # Verify boto3 client was called with correct parameters
+    mock_boto3_client.assert_called_once_with(
+        'ec2',
+        region_name='us-west-2',
+        aws_access_key_id='REMOVED_AWS_KEY',
+        aws_secret_access_key='REMOVED_AWS_SECRET',
+        config=mock_boto3_client.call_args[1]['config']
+    )
+
+# Test check-instance route with invalid instance ID
+@patch('boto3.client')
+def test_check_instance_invalid_instance_id(mock_boto3_client, client):
+    """Test check-instance route with invalid instance ID"""
+    # Setup mock EC2 client
+    mock_ec2 = MagicMock()
+    mock_boto3_client.return_value = mock_ec2
+    
+    # Mock the ClientError for InvalidInstanceID.NotFound
+    error_response = {
+        'Error': {
+            'Code': 'InvalidInstanceID.NotFound',
+            'Message': 'The instance ID does not exist'
+        }
+    }
+    mock_ec2.describe_instances.side_effect = ClientError(error_response, 'DescribeInstances')
+    
+    # Login as admin
+    with client.session_transaction() as sess:
+        sess['username'] = 'admin'
+    
+    # Call check-instance route with invalid instance ID
+    response = client.post('/check-instance', json={
+        'instance_id': 'i-nonexistent',
+        'access_key': 'REMOVED_AWS_KEY',
+        'secret_key': 'REMOVED_AWS_SECRET',
+        'region': 'us-west-2'
+    })
+    
+    # Verify response
+    assert response.status_code == 200
+    data = json.loads(response.data)
+    assert data['success'] == False
+    assert 'not found' in data['error']
+
+# Test check-instance route with invalid credentials
+@patch('boto3.client')
+def test_check_instance_invalid_credentials(mock_boto3_client, client):
+    """Test check-instance route with invalid credentials"""
+    # Setup mock EC2 client
+    mock_ec2 = MagicMock()
+    mock_boto3_client.return_value = mock_ec2
+    
+    # Mock the ClientError for AuthFailure
+    error_response = {
+        'Error': {
+            'Code': 'AuthFailure',
+            'Message': 'AWS was not able to validate the provided access credentials'
+        }
+    }
+    mock_ec2.describe_instances.side_effect = ClientError(error_response, 'DescribeInstances')
+    
+    # Login as admin
+    with client.session_transaction() as sess:
+        sess['username'] = 'admin'
+    
+    # Call check-instance route with invalid credentials
+    response = client.post('/check-instance', json={
+        'instance_id': 'i-1234567890abcdef0',
+        'access_key': 'REMOVED_AWS_KEY',
+        'secret_key': 'REMOVED_AWS_SECRET',
+        'region': 'us-west-2'
+    })
+    
+    # Verify response
+    assert response.status_code == 200
+    data = json.loads(response.data)
+    assert data['success'] == False
+    assert 'authentication' in data['error'].lower()
+
+# Test check-instance route with no credentials
+@patch('boto3.client')
+def test_check_instance_no_credentials(mock_boto3_client, client):
+    """Test check-instance route with no credentials"""
+    # Setup mock EC2 client
+    mock_ec2 = MagicMock()
+    mock_boto3_client.return_value = mock_ec2
+    
+    # Mock the NoCredentialsError
+    mock_ec2.describe_instances.side_effect = NoCredentialsError()
+    
+    # Login as admin
+    with client.session_transaction() as sess:
+        sess['username'] = 'admin'
+    
+    # Call check-instance route with no credentials
+    response = client.post('/check-instance', json={
+        'instance_id': 'i-1234567890abcdef0',
+        'region': 'us-west-2'
+    })
+    
+    # Verify response
+    assert response.status_code == 200
+    data = json.loads(response.data)
+    assert data['success'] == False
+    assert 'validation failed' in data['error'].lower()

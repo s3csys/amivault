@@ -1539,7 +1539,7 @@ def add_instance():
             
             # If using saved credentials, get them from the database
             if aws_credential_id and aws_credential_id != 'new':
-                credential = AWSCredential.query.get(aws_credential_id)
+                credential = db.session.get(AWSCredential, aws_credential_id)
                 if not credential:
                     flash("Selected AWS credential not found", "danger")
                     return render_template('aws_instances.html')
@@ -3360,10 +3360,8 @@ def check_instance():
         credential = db.session.get(AWSCredential, credential_id)
         if not credential:
             return jsonify({'success': False, 'error': 'Saved credential not found'}), 404
-        # Look up the saved credential
-        credential = AWSCredential.query.get(credential_id)
-        if not credential:
-            return jsonify({'success': False, 'error': 'Saved credential not found'}), 404
+        # Look up the saved credential using session.get() (SQLAlchemy 2.0 compatible)
+        # This line is removed as it's redundant with the check above
         
         # Use the saved credential details
         access_key = credential.access_key
