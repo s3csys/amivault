@@ -1,0 +1,196 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="content">
+  <div class="section">
+    <h1>{{ api.api_name }} Documentation</h1>
+    <p class="api-version">Version {{ api.version }}</p>
+    <p class="api-description">{{ api.description }}</p>
+    
+    <div class="api-endpoints">
+      {% for endpoint in api.endpoints %}
+      <div class="endpoint-card">
+        <div class="endpoint-header">
+          <span class="method {{ endpoint.method|lower }}">{{ endpoint.method }}</span>
+          <span class="endpoint-path">{{ endpoint.endpoint }}</span>
+        </div>
+        <div class="endpoint-body">
+          <p class="endpoint-description">{{ endpoint.description }}</p>
+          
+          {% if endpoint.parameters %}
+          <div class="parameters">
+            <h3>Parameters</h3>
+            <table class="parameters-table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Type</th>
+                  <th>Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for param in endpoint.parameters %}
+                <tr>
+                  <td>{{ param.name }}</td>
+                  <td>{{ param.type }}</td>
+                  <td>{{ param.description }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% endif %}
+          
+          <div class="response">
+            <h3>Response</h3>
+            <p>{{ endpoint.response }}</p>
+          </div>
+          
+          <div class="try-it">
+            <button class="try-endpoint" data-endpoint="{{ endpoint.endpoint }}" data-method="{{ endpoint.method }}">Try it</button>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<style>
+  .api-version {
+    color: #666;
+    font-size: 0.9rem;
+    margin-top: -0.5rem;
+  }
+  
+  .api-description {
+    margin-bottom: 2rem;
+    font-size: 1.1rem;
+  }
+  
+  .api-endpoints {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+  
+  .endpoint-card {
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+  }
+  
+  .endpoint-header {
+    padding: 1rem;
+    background-color: #f9fafb;
+    border-bottom: 1px solid #e5e7eb;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+  
+  .method {
+    font-weight: bold;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+  }
+  
+  .method.get {
+    background-color: #dbeafe;
+    color: #1e40af;
+  }
+  
+  .method.post {
+    background-color: #dcfce7;
+    color: #166534;
+  }
+  
+  .method.put {
+    background-color: #fef3c7;
+    color: #92400e;
+  }
+  
+  .method.delete {
+    background-color: #fee2e2;
+    color: #b91c1c;
+  }
+  
+  .endpoint-path {
+    font-family: monospace;
+    font-size: 1rem;
+  }
+  
+  .endpoint-body {
+    padding: 1rem;
+  }
+  
+  .endpoint-description {
+    margin-bottom: 1rem;
+  }
+  
+  .parameters, .response {
+    margin-bottom: 1.5rem;
+  }
+  
+  .parameters h3, .response h3 {
+    font-size: 1.1rem;
+    margin-bottom: 0.5rem;
+    color: #4b5563;
+  }
+  
+  .parameters-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  
+  .parameters-table th, .parameters-table td {
+    padding: 0.5rem;
+    text-align: left;
+    border-bottom: 1px solid #e5e7eb;
+  }
+  
+  .parameters-table th {
+    background-color: #f9fafb;
+    font-weight: 600;
+  }
+  
+  .try-endpoint {
+    background-color: #3b82f6;
+    color: white;
+    border: none;
+    padding: 0.5rem 1rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 500;
+    transition: background-color 0.2s;
+  }
+  
+  .try-endpoint:hover {
+    background-color: #2563eb;
+  }
+</style>
+
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    // Add event listeners to "Try it" buttons
+    document.querySelectorAll('.try-endpoint').forEach(button => {
+      button.addEventListener('click', function() {
+        const endpoint = this.getAttribute('data-endpoint');
+        const method = this.getAttribute('data-method');
+        
+        // For GET requests, we can just navigate to the endpoint
+        if (method === 'GET') {
+          window.open(endpoint, '_blank');
+        } else {
+          // For other methods, we could show a modal with a form
+          alert(`This would show a form to test the ${method} endpoint: ${endpoint}`);
+        }
+      });
+    });
+  });
+</script>
+
+{% endblock %}

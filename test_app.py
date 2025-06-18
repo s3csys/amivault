@@ -1237,3 +1237,252 @@ def test_2fa_flow(client):
         assert user.two_factor_enabled == False
         assert user.two_factor_secret is None
 
+
+# API Tests
+def test_api_instances_unauthorized(client):
+    """Test /api/instances endpoint without authentication"""
+    response = client.get('/api/instances')
+    assert response.status_code == 401
+    data = json.loads(response.data)
+    assert 'error' in data
+    assert data['error'] == 'Not authenticated'
+
+
+def test_api_instances_success(client):
+    """Test /api/instances endpoint with authentication"""
+    # Login as admin
+    with client.session_transaction() as sess:
+        sess['username'] = 'admin'
+    
+    response = client.get('/api/instances')
+    assert response.status_code == 200
+    data = json.loads(response.data)
+    assert isinstance(data, list)
+    
+    # If there are instances, verify the structure
+    if data:
+        assert 'instance_id' in data[0]
+        assert 'instance_name' in data[0]
+        assert 'region' in data[0]
+        assert 'created_at' in data[0]
+
+
+def test_api_amis_unauthorized(client):
+    """Test /api/amis endpoint without authentication"""
+    response = client.get('/api/amis')
+    assert response.status_code == 401
+    data = json.loads(response.data)
+    assert 'error' in data
+    assert data['error'] == 'Not authenticated'
+
+
+def test_api_amis_success(client, test_instance):
+    """Test /api/amis endpoint with authentication"""
+    # Login as admin
+    with client.session_transaction() as sess:
+        sess['username'] = 'admin'
+    
+    # Test with specific instance
+    response = client.get(f'/api/amis?instances={test_instance.instance_id}')
+    assert response.status_code == 200
+    data = json.loads(response.data)
+    assert isinstance(data, list)
+    
+    # Test without specifying instances (should return all)
+    response = client.get('/api/amis')
+    assert response.status_code == 200
+    data = json.loads(response.data)
+    assert isinstance(data, list)
+
+
+def test_api_backups_unauthorized(client):
+    """Test /api/backups endpoint without authentication"""
+    response = client.get('/api/backups')
+    assert response.status_code == 401
+    data = json.loads(response.data)
+    assert 'error' in data
+    assert data['error'] == 'Not authenticated'
+
+
+def test_api_backups_success(client):
+    """Test /api/backups endpoint with authentication"""
+    # Login as admin
+    with client.session_transaction() as sess:
+        sess['username'] = 'admin'
+    
+    # Test without filters
+    response = client.get('/api/backups')
+    assert response.status_code == 200
+    data = json.loads(response.data)
+    assert 'backups' in data
+    assert 'pagination' in data
+    assert 'total' in data['pagination']
+    assert 'offset' in data['pagination']
+    assert 'limit' in data['pagination']
+    
+    # Test with pagination
+    response = client.get('/api/backups?limit=5&offset=0')
+    assert response.status_code == 200
+    data = json.loads(response.data)
+    assert 'backups' in data
+    assert 'pagination' in data
+    assert data['pagination']['limit'] == 5
+    assert data['pagination']['offset'] == 0
+
+
+def test_api_backup_detail_unauthorized(client):
+    """Test /api/backup/<backup_id> endpoint without authentication"""
+    response = client.get('/api/backup/1')
+    assert response.status_code == 401
+    data = json.loads(response.data)
+    assert 'error' in data
+    assert data['error'] == 'Not authenticated'
+
+
+@patch('boto3.client')
+def test_api_backup_detail_success(mock_boto3_client, client):
+    """Test /api/backup/<backup_id> endpoint with authentication"""
+    # Setup mock EC2 client
+    mock_ec2 = MagicMock()
+    mock_boto3_client.return_value = mock_ec2
+    
+    # Create a test backup in the database
+    with app.app_context():
+        # Delete any existing backup with ID 9999
+        Backup.query.filter_by(id=9999).delete()
+        
+        backup = Backup(
+            id=9999,
+            instance_id='i-1234567890abcdef0',
+            ami_id='ami-12345678',
+            ami_name='Test AMI',
+            status='completed',
+            region='us-west-2',
+            timestamp=datetime.now(UTC),
+            retention_days=7
+        )
+        db.session.add(backup)
+        db.session.commit()
+    
+    # Login as admin
+    with client.session_transaction() as sess:
+        sess['username'] = 'admin'
+    
+    # Test with valid backup ID
+    response = client.get('/api/backup/9999')
+    assert response.status_code == 200
+    data = json.loads(response.data)
+    assert data['id'] == 9999
+    assert data['instance_id'] == 'i-1234567890abcdef0'
+    assert data['ami_id'] == 'ami-12345678'
+    assert data['status'] == 'completed'
+    
+    # Test with invalid backup ID
+    response = client.get('/api/backup/99999')
+    assert response.status_code == 404
+    data = json.loads(response.data)
+    assert 'error' in data
+    assert data['error'] == 'Backup not found'
+
+
+def test_api_backup_settings_unauthorized(client):
+    """Test /api/backup-settings endpoint without authentication"""
+    response = client.get('/api/backup-settings')
+    assert response.status_code == 401
+    data = json.loads(response.data)
+    assert 'error' in data
+    assert data['error'] == 'Not authenticated'
+
+
+def test_api_backup_settings_success(client):
+    """Test /api/backup-settings endpoint with authentication"""
+    # Login as admin
+    with client.session_transaction() as sess:
+        sess['username'] = 'admin'
+    
+    # Ensure backup settings exist
+    with app.app_context():
+        settings = BackupSettings.query.first()
+        if not settings:
+            settings = BackupSettings(
+                retention_days=7,
+                backup_frequency='0 2 * * *',
+                email_notifications=False
+            )
+            db.session.add(settings)
+            db.session.commit()
+    
+    response = client.get('/api/backup-settings')
+    assert response.status_code == 200
+    data = json.loads(response.data)
+    assert 'retention_days' in data
+    assert 'backup_frequency' in data
+    assert 'email_notifications' in data
+
+
+def test_api_aws_credentials_unauthorized(client):
+    """Test /api/aws-credentials endpoint without authentication"""
+    response = client.get('/api/aws-credentials')
+    assert response.status_code == 401
+    data = json.loads(response.data)
+    assert 'error' in data
+    assert data['error'] == 'Not authenticated'
+
+
+def test_api_aws_credentials_success(client):
+    """Test /api/aws-credentials endpoint with authentication"""
+    # Login as admin
+    with client.session_transaction() as sess:
+        sess['username'] = 'admin'
+    
+    response = client.get('/api/aws-credentials')
+    assert response.status_code == 200
+    data = json.loads(response.data)
+    assert isinstance(data, list)
+    
+    # If there are credentials, verify the structure
+    if data:
+        assert 'id' in data[0]
+        assert 'name' in data[0]
+        assert 'region' in data[0]
+        assert 'has_access_key' in data[0]
+        assert 'has_secret_key' in data[0]
+        # Verify that actual keys are not exposed
+        assert 'access_key' not in data[0]
+        assert 'secret_key' not in data[0]
+
+
+def test_api_docs_json_format(client):
+    """Test /api/docs endpoint with JSON format"""
+    # Login as admin
+    with client.session_transaction() as sess:
+        sess['username'] = 'admin'
+    
+    # Request JSON format
+    response = client.get('/api/docs?format=json')
+    assert response.status_code == 200
+    assert response.headers['Content-Type'] == 'application/json'
+    
+    data = json.loads(response.data)
+    assert 'api_name' in data
+    assert 'version' in data
+    assert 'description' in data
+    assert 'endpoints' in data
+    assert isinstance(data['endpoints'], list)
+
+
+def test_api_docs_html_format(client):
+    """Test /api/docs endpoint with HTML format"""
+    # Login as admin
+    with client.session_transaction() as sess:
+        sess['username'] = 'admin'
+    
+    # Request HTML format (default)
+    response = client.get('/api/docs')
+    assert response.status_code == 200
+    assert 'text/html' in response.headers['Content-Type']
+    
+    # Check for HTML content
+    assert b'<!DOCTYPE html>' in response.data
+    assert b'AMIVault API' in response.data
+

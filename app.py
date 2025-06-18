@@ -2186,150 +2186,10 @@ def reschedule_instance_backup(instance):
 
 ############################################################ Bulk Actions ############################################################
 
-@app.route('/bulk-export-amis', methods=['POST'])
-def bulk_export_amis():
-    """Export AMIs for selected instances to CSV"""
-    if 'username' not in session:
-        return jsonify({'success': False, 'error': 'Not authenticated'}), 401
-    
-    try:
-        data = request.get_json()
-        if not data:
-            return jsonify({'success': False, 'error': 'No data provided'}), 400
-            
-        instance_ids = data.get('instances', [])
-        if not instance_ids:
-            return jsonify({'success': False, 'error': 'No instances selected'}), 400
-        
-        # Get backups for selected instances
-        backups = Backup.query.filter(Backup.instance_id.in_(instance_ids)).order_by(Backup.timestamp.desc()).all()
-        
-        if not backups:
-            return jsonify({'success': False, 'error': 'No backups found for selected instances'}), 404
-        
-        # Generate CSV
-        si = StringIO()
-        writer = csv.writer(si)
-        writer.writerow(['Instance ID', 'AMI ID', 'AMI Name', 'Region', 'Timestamp', 'Retention Days', 'Status'])
-        
-        for backup in backups:
-            writer.writerow([
-                backup.instance_id,
-                # backup.ami_id or 'N/A',
-                backup.ami_id,
-                # backup.instance_name,
-                backup.ami_name,
-                backup.region,
-                backup.timestamp,
-                backup.retention_days,
-                backup.status
-                # backup.backup_type,
-            ])
-        
-        output = si.getvalue()
-        timestamp = datetime.now(UTC).strftime('%Y%m%d_%H%M%S')
-        filename = f"amis_export_{timestamp}.csv"
-        
-        response = make_response(output)
-        response.headers["Content-Disposition"] = f"attachment; filename={filename}"
-        response.headers["Content-Type"] = "text/csv"
-        
-        logger.info(f"User {session['username']} exported {len(backups)} AMI records")
-        return response
-        
-    except Exception as e:
-        logger.error(f"Error in bulk export AMIs: {e}")
-        return jsonify({'success': False, 'error': 'Export failed'}), 500
+# Removed duplicate bulk_export_amis endpoint - using the implementation at line ~3088 instead
 
 
-@app.route('/bulk-tag-amis', methods=['POST'])
-def bulk_tag_amis():
-    """Add tags to AMIs for selected instances"""
-    if 'username' not in session:
-        return jsonify({'success': False, 'error': 'Not authenticated'}), 401
-    
-    try:
-        data = request.get_json()
-        if not data:
-            return jsonify({'success': False, 'error': 'No data provided'}), 400
-            
-        instance_ids = data.get('instances', [])
-        tag_key = data.get('tag_key', '').strip()
-        tag_value = data.get('tag_value', '').strip()
-        
-        if not instance_ids:
-            return jsonify({'success': False, 'error': 'No instances selected'}), 400
-            
-        if not tag_key or not tag_value:
-            return jsonify({'success': False, 'error': 'Tag key and value are required'}), 400
-        
-        tagged_amis = []
-        errors = []
-        
-        for inst_id in instance_ids:
-            inst = Instance.query.filter_by(instance_id=inst_id, is_active=True).first()
-            if not inst:
-                errors.append(f"Instance {inst_id} not found or inactive")
-                continue
-            
-            # Get successful backups for this instance
-            backups = Backup.query.filter_by(instance_id=inst_id, status='Success').all()
-            if not backups:
-                errors.append(f"No successful backups found for instance {inst_id}")
-                continue
-            
-            try:
-                # Create EC2 client
-                ec2_client = boto3.client(
-                    'ec2',
-                    region_name=inst.region,
-                    aws_access_key_id=inst.access_key,
-                    aws_secret_access_key=inst.secret_key
-                )
-                
-                for backup in backups:
-                    if backup.ami_id:
-                        try:
-                            ec2_client.create_tags(
-                                Resources=[backup.ami_id],
-                                Tags=[{'Key': tag_key, 'Value': tag_value}]
-                            )
-                            tagged_amis.append(backup.ami_id)
-                        except ClientError as e:
-                            error_code = e.response.get('Error', {}).get('Code', '')
-                            if error_code == 'InvalidAMIID.NotFound':
-                                errors.append(f"AMI {backup.ami_id} not found")
-                            else:
-                                errors.append(f"Failed to tag {backup.ami_id}: {str(e)}")
-                        except Exception as e:
-                            errors.append(f"Failed to tag {backup.ami_id}: {str(e)}")
-                            
-            except Exception as e:
-                errors.append(f"Failed to connect to AWS for instance {inst_id}: {str(e)}")
-        
-        # Prepare response
-        result = {
-            'success': True,
-            'tagged_count': len(tagged_amis),
-            'tagged_amis': tagged_amis,
-            'errors': errors
-        }
-        
-        if tagged_amis:
-            message = f"Successfully tagged {len(tagged_amis)} AMIs"
-            if errors:
-                message += f" with {len(errors)} errors"
-            result['message'] = message
-        else:
-            result['success'] = False
-            result['message'] = "No AMIs were tagged"
-        
-        logger.info(f"User {session['username']} tagged {len(tagged_amis)} AMIs with {tag_key}={tag_value}")
-        return jsonify(result)
-        
-    except Exception as e:
-        logger.error(f"Error in bulk tag AMIs: {e}")
-        return jsonify({'success': False, 'error': 'Tagging operation failed'}), 500
+# Removed duplicate bulk_tag_amis endpoint - using the implementation at line ~3088 instead
 
 
 @app.route('/bulk-delete-backups', methods=['POST'])
@@ -2862,28 +2722,45 @@ def api_amis():
         return jsonify({'error': 'Not authenticated'}), 401
     
     try:
-        instance_ids = request.args.get('instances', '').split(',')
-        instance_ids = [id.strip() for id in instance_ids if id.strip()]
+        # Get instance IDs from query parameters
+        instance_ids = request.args.get('instances', '')
+        
+        # Handle both comma-separated string and empty case
+        if instance_ids:
+            instance_ids = [id.strip() for id in instance_ids.split(',') if id.strip()]
+        else:
+            # If no instances specified, get all instances
+            instances = Instance.query.filter_by(is_active=True).all()
+            instance_ids = [inst.instance_id for inst in instances]
         
         if not instance_ids:
             return jsonify([])
         
+        # Query backups with valid AMI IDs for the specified instances
         backups = Backup.query.filter(
             Backup.instance_id.in_(instance_ids),
             Backup.ami_id.isnot(None)
         ).order_by(Backup.timestamp.desc()).all()
         
-        return jsonify([{
+        # Format the response
+        result = [{
             'ami_id': backup.ami_id,
-            'instance_name': backup.instance_name,
+            'instance_name': backup.instance_name or (backup.instance_ref.instance_name if backup.instance_ref else 'Unknown'),
             'instance_id': backup.instance_id,
             'status': backup.status,
-            'timestamp': backup.formatted_timestamp if hasattr(backup, 'formatted_timestamp') else backup.timestamp.isoformat()
-        } for backup in backups])
+            'region': backup.region,
+            'ami_name': backup.ami_name,
+            'size_gb': backup.size_gb,
+            'timestamp': backup.timestamp.isoformat() if backup.timestamp else None,
+            'created_at': backup.created_at.isoformat() if backup.created_at else None,
+            'completed_at': backup.completed_at.isoformat() if backup.completed_at else None
+        } for backup in backups]
+        
+        return jsonify(result)
         
     except Exception as e:
         logger.error(f"Error in api_amis: {e}")
-        return jsonify({'error': 'Failed to fetch AMIs'}), 500
+        return jsonify({'error': 'Failed to fetch AMIs', 'details': str(e)}), 500
 
 
 @app.route('/get-credential-details/<int:credential_id>', methods=['GET'])
@@ -3069,6 +2946,177 @@ def bulk_delete_amis():
         return jsonify({'success': False, 'error': 'Delete operation failed'}), 500
 
 
+@app.route('/bulk-export-amis', methods=['POST'])
+def bulk_export_amis():
+    """Export AMI list for selected instances as CSV"""
+    if 'username' not in session:
+        return jsonify({'success': False, 'error': 'Not authenticated'}), 401
+    
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'No data provided'}), 400
+            
+        instance_ids = data.get('instances', [])
+        if not instance_ids:
+            return jsonify({'success': False, 'error': 'No instances selected'}), 400
+        
+        # Get all backups with AMI IDs for the selected instances
+        backups = Backup.query.filter(
+            Backup.instance_id.in_(instance_ids),
+            Backup.ami_id.isnot(None)
+        ).order_by(Backup.timestamp.desc()).all()
+        
+        if not backups:
+            return jsonify({'success': False, 'error': 'No backups found'}), 404
+        
+        # Create CSV in memory
+        csv_data = StringIO()
+        csv_writer = csv.writer(csv_data)
+        
+        # Write header
+        csv_writer.writerow([
+            'Instance ID', 'AMI ID', 'AMI Name', 'Region', 'Timestamp', 'Retention Days', 'Status'
+        ])
+        
+        # Write data rows
+        for backup in backups:
+            instance_name = backup.instance_name
+            if not instance_name and backup.instance_ref:
+                instance_name = backup.instance_ref.instance_name
+                
+            csv_writer.writerow([
+                backup.instance_id,
+                backup.ami_id,
+                backup.ami_name or 'N/A',
+                backup.region or 'Unknown',
+                backup.timestamp.strftime('%Y-%m-%d %H:%M:%S') if backup.timestamp else 'N/A',
+                str(backup.retention_days) if backup.retention_days else 'N/A',
+                backup.status
+            ])
+        
+        # Prepare response
+        csv_output = csv_data.getvalue()
+        csv_data.close()
+        
+        response = make_response(csv_output)
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        response.headers["Content-Disposition"] = f"attachment; filename=amis_export_{timestamp}.csv"
+        response.headers["Content-type"] = "text/csv"
+        
+        logger.info(f"User {session['username']} exported {len(backups)} AMIs as CSV")
+        return response
+        
+    except Exception as e:
+        logger.error(f"Error in bulk_export_amis: {e}")
+        return jsonify({'success': False, 'error': 'Export operation failed', 'details': str(e)}), 500
+
+
+@app.route('/bulk-tag-amis', methods=['POST'])
+def bulk_tag_amis():
+    """Add tags to AMIs for selected instances"""
+    if 'username' not in session:
+        return jsonify({'success': False, 'error': 'Not authenticated'}), 401
+    
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'No data provided'}), 400
+            
+        instance_ids = data.get('instances', [])
+        tag_key = data.get('tag_key')
+        tag_value = data.get('tag_value')
+        
+        if not instance_ids:
+            return jsonify({'success': False, 'error': 'No instances selected'}), 400
+            
+        if not tag_key or not tag_value:
+            return jsonify({'success': False, 'error': 'Tag key and value are required'}), 400
+        
+        tagged_amis = []
+        errors = []
+        
+        for inst_id in instance_ids:
+            inst = Instance.query.filter_by(instance_id=inst_id, is_active=True).first()
+            if not inst:
+                errors.append(f"Instance {inst_id} not found or inactive")
+                continue
+            
+            # Get backups with AMI IDs
+            backups = Backup.query.filter_by(instance_id=inst_id).filter(
+                Backup.ami_id.isnot(None)
+            ).all()
+            
+            if not backups:
+                errors.append(f"No AMIs found for instance {inst_id}")
+                continue
+            
+            try:
+                ec2_client = boto3.client(
+                    'ec2',
+                    region_name=inst.region,
+                    aws_access_key_id=inst.access_key,
+                    aws_secret_access_key=inst.secret_key
+                )
+                
+                for backup in backups:
+                    try:
+                        # Add tag to AMI
+                        ec2_client.create_tags(
+                            Resources=[backup.ami_id],
+                            Tags=[{'Key': tag_key, 'Value': tag_value}]
+                        )
+                        tagged_amis.append(backup.ami_id)
+                        logger.info(f"Tagged AMI {backup.ami_id} with {tag_key}={tag_value}")
+                        
+                        # Update tags in database if they exist
+                        if backup.tags is None:
+                            backup.tags = {}
+                        
+                        if isinstance(backup.tags, dict):
+                            backup.tags[tag_key] = tag_value
+                            db.session.add(backup)
+                        
+                    except ClientError as e:
+                        error_code = e.response.get('Error', {}).get('Code', '')
+                        if error_code == 'InvalidAMIID.NotFound':
+                            errors.append(f"AMI {backup.ami_id} not found in AWS")
+                        else:
+                            errors.append(f"Error tagging AMI {backup.ami_id}: {str(e)}")
+                    except Exception as e:
+                        errors.append(f"Error tagging AMI {backup.ami_id}: {str(e)}")
+                
+            except Exception as e:
+                errors.append(f"Error processing instance {inst_id}: {str(e)}")
+        
+        # Commit database changes
+        db.session.commit()
+        
+        result = {
+            'success': True,
+            'tagged_count': len(tagged_amis),
+            'tagged_amis': tagged_amis,
+            'errors': errors
+        }
+        
+        if tagged_amis:
+            message = f"Successfully tagged {len(tagged_amis)} AMIs"
+            if errors:
+                message += f" with {len(errors)} errors"
+            result['message'] = message
+        else:
+            result['success'] = False
+            result['message'] = "No AMIs were tagged"
+        
+        logger.info(f"User {session['username']} tagged {len(tagged_amis)} AMIs with {tag_key}={tag_value}")
+        return jsonify(result)
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error in bulk_tag_amis: {e}")
+        return jsonify({'success': False, 'error': 'Tag operation failed', 'details': str(e)}), 500
+
+
 # Initialize scheduler
 #scheduler = APScheduler()
 #scheduler.init_app(app)
@@ -3084,6 +3132,263 @@ def initialize_scheduler():
             logger.info("✅ Backup scheduler initialized successfully")
         except Exception as e:
             logger.error(f"Failed to initialize backup scheduler: {e}")
+
+
+# API Endpoints
+@app.route('/api/backups')
+def api_backups():
+    """API endpoint to get all backups"""
+    if 'username' not in session:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    try:
+        # Get query parameters
+        instance_id = request.args.get('instance_id')
+        status = request.args.get('status')
+        limit = request.args.get('limit', type=int, default=100)
+        offset = request.args.get('offset', type=int, default=0)
+        
+        # Build query
+        query = Backup.query
+        
+        if instance_id:
+            query = query.filter_by(instance_id=instance_id)
+        
+        if status:
+            query = query.filter_by(status=status)
+        
+        # Get total count for pagination
+        total_count = query.count()
+        
+        # Apply pagination
+        backups = query.order_by(Backup.timestamp.desc()).offset(offset).limit(limit).all()
+        
+        # Format response
+        result = {
+            'backups': [{
+                'id': backup.id,
+                'instance_id': backup.instance_id,
+                'instance_name': backup.instance_name or (backup.instance_ref.instance_name if backup.instance_ref else 'Unknown'),
+                'ami_id': backup.ami_id,
+                'ami_name': backup.ami_name,
+                'status': backup.status,
+                'region': backup.region,
+                'size_gb': backup.size_gb,
+                'timestamp': backup.timestamp.isoformat() if backup.timestamp else None,
+                'created_at': backup.created_at.isoformat() if backup.created_at else None,
+                'completed_at': backup.completed_at.isoformat() if backup.completed_at else None,
+                'error_message': backup.error_message
+            } for backup in backups],
+            'pagination': {
+                'total': total_count,
+                'offset': offset,
+                'limit': limit
+            }
+        }
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"Error in api_backups: {e}")
+        return jsonify({'error': 'Failed to fetch backups', 'details': str(e)}), 500
+
+
+@app.route('/api/backup/<int:backup_id>')
+def api_backup_detail(backup_id):
+    """API endpoint to get details of a specific backup"""
+    if 'username' not in session:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    try:
+        backup = Backup.query.get(backup_id)
+        
+        if not backup:
+            return jsonify({'error': 'Backup not found'}), 404
+        
+        result = {
+            'id': backup.id,
+            'instance_id': backup.instance_id,
+            'instance_name': backup.instance_name or (backup.instance_ref.instance_name if backup.instance_ref else 'Unknown'),
+            'ami_id': backup.ami_id,
+            'ami_name': backup.ami_name,
+            'status': backup.status,
+            'region': backup.region,
+            'size_gb': backup.size_gb,
+            'timestamp': backup.timestamp.isoformat() if backup.timestamp else None,
+            'created_at': backup.created_at.isoformat() if backup.created_at else None,
+            'completed_at': backup.completed_at.isoformat() if backup.completed_at else None,
+            'error_message': backup.error_message,
+            'duration_seconds': backup.duration_seconds,
+            'cleanup_status': backup.cleanup_status,
+            'cleanup_timestamp': backup.cleanup_timestamp.isoformat() if backup.cleanup_timestamp else None,
+            'retention_days': backup.retention_days
+        }
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"Error in api_backup_detail: {e}")
+        return jsonify({'error': 'Failed to fetch backup details', 'details': str(e)}), 500
+
+
+@app.route('/api/backup-settings')
+def api_backup_settings():
+    """API endpoint to get global backup settings"""
+    if 'username' not in session:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    try:
+        settings = BackupSettings.query.first()
+        
+        if not settings:
+            return jsonify({'error': 'Backup settings not found'}), 404
+        
+        result = {
+            'id': settings.id,
+            'retention_days': settings.retention_days,
+            'backup_frequency': settings.backup_frequency,
+            'email_notifications': settings.email_notifications,
+            'notification_email': settings.notification_email,
+            'max_concurrent_backups': settings.max_concurrent_backups,
+            'backup_timeout_minutes': settings.backup_timeout_minutes,
+            'created_at': settings.created_at.isoformat() if settings.created_at else None,
+            'updated_at': settings.updated_at.isoformat() if settings.updated_at else None
+        }
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"Error in api_backup_settings: {e}")
+        return jsonify({'error': 'Failed to fetch backup settings', 'details': str(e)}), 500
+
+
+@app.route('/api/aws-credentials')
+def api_aws_credentials():
+    """API endpoint to get AWS credentials"""
+    if 'username' not in session:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    try:
+        # Get the current user
+        current_username = session.get('username')
+        user = User.query.filter_by(username=current_username).first()
+        
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+        
+        # Check if user is admin
+        is_admin = user.username.lower() == 'admin'
+        
+        # Query credentials
+        if is_admin:
+            # Admin can see all credentials
+            credentials = AWSCredential.query.all()
+        else:
+            # Regular users can only see their own credentials
+            credentials = AWSCredential.query.filter_by(user_id=user.id).all()
+        
+        result = [{
+            'id': cred.id,
+            'name': cred.name,
+            'region': cred.region,
+            'has_access_key': bool(cred.access_key),
+            'has_secret_key': bool(cred.secret_key),
+            'created_at': cred.created_at.isoformat() if cred.created_at else None,
+            'updated_at': cred.updated_at.isoformat() if cred.updated_at else None
+        } for cred in credentials]
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"Error in api_aws_credentials: {e}")
+        return jsonify({'error': 'Failed to fetch AWS credentials', 'details': str(e)}), 500
+
+
+@app.route('/api/docs')
+def api_docs():
+    """API documentation endpoint (JSON format)"""
+    api_endpoints = [
+        {
+            'endpoint': '/api/instances',
+            'method': 'GET',
+            'description': 'Get list of all instances',
+            'parameters': [],
+            'response': 'Array of instance objects with instance_id, instance_name, region, and created_at'
+        },
+        {
+            'endpoint': '/api/amis',
+            'method': 'GET',
+            'description': 'Get list of AMIs for selected instances',
+            'parameters': [
+                {'name': 'instances', 'type': 'string', 'description': 'Comma-separated list of instance IDs (optional)'}
+            ],
+            'response': 'Array of AMI objects with ami_id, instance_name, instance_id, status, region, etc.'
+        },
+        {
+            'endpoint': '/api/backups',
+            'method': 'GET',
+            'description': 'Get list of all backups with pagination',
+            'parameters': [
+                {'name': 'instance_id', 'type': 'string', 'description': 'Filter by instance ID (optional)'},
+                {'name': 'status', 'type': 'string', 'description': 'Filter by status (optional)'},
+                {'name': 'limit', 'type': 'integer', 'description': 'Number of results to return (default: 100)'},
+                {'name': 'offset', 'type': 'integer', 'description': 'Offset for pagination (default: 0)'}
+            ],
+            'response': 'Object with backups array and pagination information'
+        },
+        {
+            'endpoint': '/api/backup/<backup_id>',
+            'method': 'GET',
+            'description': 'Get details of a specific backup',
+            'parameters': [
+                {'name': 'backup_id', 'type': 'integer', 'description': 'ID of the backup to retrieve'}
+            ],
+            'response': 'Detailed backup object'
+        },
+        {
+            'endpoint': '/api/backup-settings',
+            'method': 'GET',
+            'description': 'Get global backup settings',
+            'parameters': [],
+            'response': 'Backup settings object'
+        },
+        {
+            'endpoint': '/api/aws-credentials',
+            'method': 'GET',
+            'description': 'Get AWS credentials (admin sees all, users see only their own)',
+            'parameters': [],
+            'response': 'Array of credential objects (without actual keys)'
+        },
+        {
+            'endpoint': '/bulk-delete-amis',
+            'method': 'POST',
+            'description': 'Delete AMIs and associated snapshots for selected instances',
+            'parameters': [
+                {'name': 'instances', 'type': 'array', 'description': 'Array of instance IDs'}
+            ],
+            'response': 'Object with success status, deleted count, and errors'
+        }
+    ]
+    
+    api_data = {
+        'api_name': 'AMIVault API',
+        'version': '1.0',
+        'description': 'API for managing AWS EC2 instance backups and AMIs',
+        'endpoints': api_endpoints
+    }
+    
+    # Check if the client wants JSON or HTML
+    if request.headers.get('Accept') == 'application/json' or request.args.get('format') == 'json':
+        return jsonify(api_data)
+    
+    # Default to HTML documentation
+    return render_template('api_docs.html', api=api_data)
+
+
+@app.route('/docs')
+def docs_redirect():
+    """Redirect /docs to /api/docs for convenience"""
+    return redirect(url_for('api_docs'))
 
 ############################################################ deleting ami ############################################################
 
