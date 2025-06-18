@@ -91,6 +91,9 @@ Create a `.env` file in the root directory with the following variables:
 # Flask Configuration
 FLASK_APP=app.py
 FLASK_ENV=development  # Change to 'production' for production deployment
+FLASK_DEBUG=0     # Change to 1 if you want to enable the debug mode
+FLASK_HOST=0.0.0.0
+FLASK_PORT=5000
 SECRET_KEY=your_secure_secret_key  # Generate a strong random key
 
 # Admin Account
@@ -98,9 +101,23 @@ ADMIN_USERNAME=admin
 ADMIN_PASSWORD=your_secure_password  # Change from default
 ADMIN_EMAIL=admin@example.com
 
+# Backup Configuration
+# Default cron expression for backup frequency (0 2 * * * = daily at 2 AM)
+DEFAULT_BACKUP_FREQUENCY=0 2 * * *
+# Default number of days to retain backups before automatic cleanup
+DEFAULT_RETENTION_DAYS=7
+
 # Logging Configuration
 LOG_LEVEL=INFO
 LOG_DIR=logs
+ACCESS_LOG=access.log
+ERROR_LOG=error.log
+APP_LOG=app.log
+LOG_FORMAT=%(asctime)s - %(name)s - %(levelname)s - %(message)s
+LOG_DATE_FORMAT=%Y-%m-%d %H:%M:%S
+LOG_MAX_BYTES=10485760
+LOG_BACKUP_COUNT=5
+
 ```
 
 4. **Initialize the Database**
@@ -208,13 +225,39 @@ Supports both cron expressions and interval notation:
 
 ### Logging
 
-Configure logging behavior through environment variables:
+Configure logging behavior through environment variables. These variables are directly used in `app.py` to configure the application's logging system:
 
-- `LOG_LEVEL`: Sets the logging level (DEBUG, INFO, WARNING, ERROR)
-- `LOG_DIR`: Directory for log files
-- `LOG_FORMAT`: Custom log format
-- `LOG_MAX_BYTES`: Maximum log file size before rotation
-- `LOG_BACKUP_COUNT`: Number of backup log files to keep
+```bash
+# Logging Configuration
+LOG_LEVEL=INFO                                                  # Logging level (DEBUG, INFO, WARNING, ERROR)
+LOG_DIR=logs                                                    # Directory where log files are stored
+LOG_FORMAT="%(asctime)s - %(name)s - %(levelname)s - %(message)s" # Format of log entries
+LOG_DATE_FORMAT="%Y-%m-%d %H:%M:%S"                             # Format for timestamps in logs
+LOG_MAX_BYTES=10485760                                          # Maximum size of log files before rotation (10MB)
+LOG_BACKUP_COUNT=5                                              # Number of backup log files to keep
+```
+
+These variables control the following aspects of the logging system:
+
+- `LOG_LEVEL`: Sets the logging level (DEBUG, INFO, WARNING, ERROR). Controls the verbosity of logs. If changed to "ERROR", only error and critical messages will be logged, while INFO, DEBUG, and WARNING messages will be filtered out. This setting affects both console output and the app.log file.
+
+- `LOG_DIR`: Directory for log files. The application will create this directory if it doesn't exist.
+
+- `LOG_FORMAT`: Custom log format string that determines how log entries are formatted. This directly configures the Python logging formatter used for all log handlers. Changing this will affect the structure of each log entry.
+
+- `LOG_DATE_FORMAT`: Format for timestamps in log entries. This configures how dates and times appear in log messages. The application uses this with the formatter to ensure consistent timestamp formatting.
+
+- `LOG_MAX_BYTES`: Maximum log file size before rotation (in bytes). When a log file reaches this size, it's renamed with a suffix (e.g., app.log.1) and a new log file is created. This prevents log files from growing too large and consuming excessive disk space.
+
+- `LOG_BACKUP_COUNT`: Number of backup log files to keep when rotating logs. For example, with a value of 5, the application will maintain app.log plus app.log.1 through app.log.5. When app.log reaches the maximum size, app.log.5 is deleted, app.log.4 becomes app.log.5, and so on. This implements an automatic log retention policy without requiring additional scripts or maintenance.
+
+The application creates three types of log files, all configured with the same rotation and backup settings:
+
+1. **app.log**: General application logs at the configured LOG_LEVEL
+2. **error.log**: Error-level logs only (not affected by LOG_LEVEL setting)
+3. **access.log**: HTTP request logs from the Flask application (werkzeug logs)
+
+Log rotation happens automatically through Python's `RotatingFileHandler`, which checks the file size before each write operation. No additional cron jobs or maintenance tasks are required for log rotation and cleanup.
 
 ---
 
@@ -278,12 +321,17 @@ The test suite covers:
 
 AMIVault provides a RESTful API for integration with other systems:
 
-- **Authentication:** `/api/login` (POST)
-- **Instances:** `/api/instances` (GET, POST, PUT, DELETE)
-- **Backups:** `/api/backups` (GET, POST, DELETE)
-- **Schedules:** `/api/schedules` (GET, POST, PUT, DELETE)
+- **Authentication:** `/api/login` (POST) 
+- **Instances:** `/api/instances` (GET) 
+- **AMIs:** `/api/amis` (GET) 
+- **Backups:** `/api/backups` (GET) 
+- **Backup Details:** `/api/backup/<backup_id>` (GET) 
+- **Backup Settings:** `/api/backup-settings` (GET) 
+- **AWS Credentials:** `/api/aws-credentials` (GET) 
+- **API Documentation:** `/api/docs` (GET) 
+- **Schedules:** `/api/schedules/refresh` (GET)
 
-API documentation is available at `/api/docs` when running in development mode.
+API documentation is available at `/api/docs` when running the application.
 
 ---
 
