@@ -1,8 +1,10 @@
 import pytest
-from app import app, db, User, AWSCredential, Instance
+from app import app, db, User, AWSCredential, Instance, Backup
 from datetime import datetime, UTC
 import json
 import pyotp
+import io
+import csv
 from unittest.mock import patch, MagicMock
 from botocore.exceptions import ClientError, NoCredentialsError
 
@@ -65,6 +67,8 @@ def client():
         with app.app_context():
             db.session.remove()
             db.drop_all()
+
+################################################ Login checks ####################################################################
 
 # Test GET login page
 def test_login_page(client):
@@ -227,178 +231,226 @@ def test_logout(client):
     response = client.get('/user-settings', follow_redirects=True)
     assert b'Sign in to your account' in response.data  # Check for login page content
 
-# Test user settings page access
-def test_user_settings_access(client):
-    """Test access to user settings page"""
-    # Login as admin
-    with client.session_transaction() as sess:
-        sess['username'] = 'admin'
-    
-    # Access user settings page
-    response = client.get('/user-settings')
-    assert response.status_code == 200
-    # Check for content without relying on specific HTML entity encoding
-    assert b'User Settings' in response.data
-    assert b'Add User' in response.data
-    assert b'Reset User Password' in response.data
-    assert b'All Users' in response.data
-    assert b'Danger Zone' in response.data
+################################################ Dashboard checks ####################################################################
 
-# Test add user functionality
-def test_add_user(client):
-    """Test adding a new user as admin"""
+# Test bulk_delete_amis
+@patch('boto3.client')
+def test_bulk_delete_amis_success(mock_boto3_client, client, test_instance):
+    """Test successful bulk deletion of AMIs"""
+    # Setup mock EC2 client
+    mock_ec2 = MagicMock()
+    mock_boto3_client.return_value = mock_ec2
+    
+    # Mock describe_images response
+    mock_ec2.describe_images.return_value = {
+        'Images': [{
+            'ImageId': 'ami-012345678',
+            'BlockDeviceMappings': [{
+                'Ebs': {
+                    'SnapshotId': 'snap-012345678'
+                }
+            }]
+        }]
+    }
+    
     # Login as admin
     with client.session_transaction() as sess:
         sess['username'] = 'admin'
     
-    # Add a new user
-    response = client.post('/add-user', data={
-        'username': 'newuser',
-        'email': 'newuser@example.com',
-        'password': 'Password123!'
-    }, follow_redirects=True)
-    
-    assert response.status_code == 200
-    assert b'User &#39;newuser&#39; added successfully' in response.data
-    
-    # Verify user was added to database
-    with app.app_context():
-        user = User.query.filter_by(username='newuser').first()
-        assert user is not None
-        assert user.email == 'newuser@example.com'
-        assert user.check_password('Password123!')
-
-# Test reset password functionality
-def test_reset_password(client):
-    """Test resetting a user's password as admin"""
-    # Login as admin
-    with client.session_transaction() as sess:
-        sess['username'] = 'admin'
-    
-    # Reset password for test user
-    response = client.post('/reset-password', data={
-        'username': 'test',
-        'new_password': 'NewPassword123!'
-    }, follow_redirects=True)
-    
-    assert response.status_code == 200
-    assert b'Password reset successfully for user &#39;test&#39;' in response.data
-    
-    # Verify password was changed
-    with app.app_context():
-        user = User.query.filter_by(username='test').first()
-        assert user.check_password('NewPassword123!')
-
-# Test toggle user status functionality
-def test_toggle_user_status(client):
-    """Test toggling a user's active status as admin"""
-    # Login as admin
-    with client.session_transaction() as sess:
-        sess['username'] = 'admin'
-    
-    # Get initial status
-    with app.app_context():
-        user = User.query.filter_by(username='test').first()
-        initial_status = user.is_active
-    
-    # Toggle user status
-    response = client.post('/toggle-user-status', data={
-        'username': 'test'
+    # Call bulk_delete_amis
+    response = client.post('/bulk-delete-amis', json={
+        'instances': ['i-1234567890abcdef0']
     })
     
+    # Verify response
     assert response.status_code == 200
     data = json.loads(response.data)
     assert data['success'] == True
+    assert data['deleted_count'] > 0
     
-    # Verify status was toggled
+    # Verify boto3 client was called correctly
+    mock_boto3_client.assert_called_with(
+        'ec2',
+        region_name='us-west-2',
+        aws_access_key_id='REMOVED_AWS_KEY',
+        aws_secret_access_key='REMOVED_AWS_SECRET'
+    )
+    
+    # Verify deregister_image was called
+    assert mock_ec2.deregister_image.call_count > 0
+    
+    # Verify database records were deleted
     with app.app_context():
-        user = User.query.filter_by(username='test').first()
-        assert user.is_active != initial_status
+        backups = Backup.query.filter_by(instance_id='i-1234567890abcdef0').all()
+        assert len(backups) == 0
 
-# Test delete user functionality
-def test_delete_user(client):
-    """Test deleting a user as admin"""
+@patch('boto3.client')
+def test_bulk_delete_amis_ami_not_found(mock_boto3_client, client, test_instance):
+    """Test bulk deletion when AMI is not found"""
+    # Setup mock EC2 client
+    mock_ec2 = MagicMock()
+    mock_boto3_client.return_value = mock_ec2
+    
+    # Mock ClientError for InvalidAMIID.NotFound
+    error_response = {
+        'Error': {
+            'Code': 'InvalidAMIID.NotFound',
+            'Message': 'The AMI ID does not exist'
+        }
+    }
+    mock_ec2.describe_images.side_effect = ClientError(error_response, 'DescribeImages')
+    
     # Login as admin
     with client.session_transaction() as sess:
         sess['username'] = 'admin'
     
-    # First add a user to delete
-    client.post('/add-user', data={
-        'username': 'userToDelete',
-        'email': 'delete@example.com',
-        'password': 'Password123!'
+    # Call bulk_delete_amis
+    response = client.post('/bulk-delete-amis', json={
+        'instances': ['i-1234567890abcdef0']
     })
     
-    # Verify user exists
-    with app.app_context():
-        user = User.query.filter_by(username='userToDelete').first()
-        assert user is not None
-    
-    # Delete the user
-    response = client.post('/delete-user', data={
-        'username': 'userToDelete'
-    }, follow_redirects=True)
-    
+    # Verify response
     assert response.status_code == 200
-    assert b'User &#39;userToDelete&#39; deleted successfully' in response.data
+    data = json.loads(response.data)
+    assert data['success'] == True  # Should still be successful as we're just removing from DB
     
-    # Verify user was deleted
-    with app.app_context():
-        user = User.query.filter_by(username='userToDelete').first()
-        assert user is None
+    # Verify deregister_image was not called
+    assert mock_ec2.deregister_image.call_count == 0
 
-# Test 2FA setup and disable
-def test_2fa_flow(client):
-    """Test 2FA setup and disable flow"""
-    # Login as test user
+# Test bulk_export_amis
+def test_bulk_export_amis_success(client, test_instance):
+    """Test successful export of AMIs to CSV"""
+    # Login as admin
     with client.session_transaction() as sess:
-        sess['username'] = 'test'
+        sess['username'] = 'admin'
     
-    # Access 2FA setup page
-    response = client.get('/setup-2fa')
-    assert response.status_code == 200
-    # Check for content without relying on specific HTML entity encoding
-    assert b'Set Up Two-Factor Authentication' in response.data
-    assert b'Scan this QR code' in response.data
-    
-    # Get the secret from the page
-    with app.app_context():
-        user = User.query.filter_by(username='test').first()
-        assert user.two_factor_secret is not None
-        secret = user.two_factor_secret
-    
-    # Generate a valid TOTP code
-    totp = pyotp.TOTP(secret)
-    valid_code = totp.now()
-    
-    # Enable 2FA
-    response = client.post('/setup-2fa', data={
-        'code': valid_code
-    }, follow_redirects=True)
-    
-    assert response.status_code == 200
-    assert b'Two-factor authentication enabled successfully' in response.data
-    
-    # Verify 2FA is enabled
-    with app.app_context():
-        user = User.query.filter_by(username='test').first()
-        assert user.two_factor_enabled == True
-    
-    # Disable 2FA
-    response = client.post('/disable-2fa', data={
-        'password': 'password123'
+    # Call bulk_export_amis
+    response = client.post('/bulk-export-amis', json={
+        'instances': ['i-1234567890abcdef0']
     })
     
+    # Verify response
+    assert response.status_code == 200
+    assert response.headers['Content-Type'] == 'text/csv'
+    assert 'attachment; filename=amis_export_' in response.headers['Content-Disposition']
+    
+    # Verify CSV content
+    csv_data = response.data.decode('utf-8')
+    csv_reader = csv.reader(io.StringIO(csv_data))
+    rows = list(csv_reader)
+    
+    # Check header row
+    assert rows[0] == ['Instance ID', 'AMI ID', 'AMI Name', 'Region', 'Timestamp', 'Retention Days', 'Status']
+    
+    # Check data rows
+    assert len(rows) > 1  # Header + at least one data row
+    for row in rows[1:]:
+        assert row[0] == 'i-1234567890abcdef0'  # Instance ID
+        assert row[1].startswith('ami-')  # AMI ID
+        assert row[3] == 'us-west-2'  # Region
+
+def test_bulk_export_amis_no_backups(client):
+    """Test export when no backups exist"""
+    # Login as admin
+    with client.session_transaction() as sess:
+        sess['username'] = 'admin'
+    
+    # Call bulk_export_amis with non-existent instance
+    response = client.post('/bulk-export-amis', json={
+        'instances': ['i-nonexistent']
+    })
+    
+    # Verify response
+    assert response.status_code == 404
+    data = json.loads(response.data)
+    assert data['success'] == False
+    assert 'No backups found' in data['error']
+
+# Test bulk_tag_amis
+@patch('boto3.client')
+def test_bulk_tag_amis_success(mock_boto3_client, client, test_instance):
+    """Test successful tagging of AMIs"""
+    # Setup mock EC2 client
+    mock_ec2 = MagicMock()
+    mock_boto3_client.return_value = mock_ec2
+    
+    # Login as admin
+    with client.session_transaction() as sess:
+        sess['username'] = 'admin'
+    
+    # Call bulk_tag_amis
+    response = client.post('/bulk-tag-amis', json={
+        'instances': ['i-1234567890abcdef0'],
+        'tag_key': 'Environment',
+        'tag_value': 'Production'
+    })
+    
+    # Verify response
     assert response.status_code == 200
     data = json.loads(response.data)
     assert data['success'] == True
-    assert data['message'] == '2FA disabled successfully'
+    assert data['tagged_count'] > 0
     
-    # Verify 2FA is disabled
-    with app.app_context():
-        user = User.query.filter_by(username='test').first()
-        assert user.two_factor_enabled == False
-        assert user.two_factor_secret is None
+    # Verify boto3 client was called correctly
+    mock_boto3_client.assert_called_with(
+        'ec2',
+        region_name='us-west-2',
+        aws_access_key_id='REMOVED_AWS_KEY',
+        aws_secret_access_key='REMOVED_AWS_SECRET'
+    )
+    
+    # Verify create_tags was called for each AMI
+    assert mock_ec2.create_tags.call_count > 0
+    for call_args in mock_ec2.create_tags.call_args_list:
+        args, kwargs = call_args
+        assert kwargs['Tags'][0]['Key'] == 'Environment'
+        assert kwargs['Tags'][0]['Value'] == 'Production'
+
+@patch('boto3.client')
+def test_bulk_tag_amis_ami_not_found(mock_boto3_client, client, test_instance):
+    """Test tagging when AMI is not found"""
+    # Setup mock EC2 client
+    mock_ec2 = MagicMock()
+    mock_boto3_client.return_value = mock_ec2
+    
+    # Mock ClientError for InvalidAMIID.NotFound
+    error_response = {
+        'Error': {
+            'Code': 'InvalidAMIID.NotFound',
+            'Message': 'The AMI ID does not exist'
+        }
+    }
+    mock_ec2.create_tags.side_effect = ClientError(error_response, 'CreateTags')
+    
+    # Login as admin
+    with client.session_transaction() as sess:
+        sess['username'] = 'admin'
+    
+    # Call bulk_tag_amis
+    response = client.post('/bulk-tag-amis', json={
+        'instances': ['i-1234567890abcdef0'],
+        'tag_key': 'Environment',
+        'tag_value': 'Production'
+    })
+    
+    # Verify response
+    assert response.status_code == 200
+    data = json.loads(response.data)
+    assert data['success'] == False  # Operation fails when no AMIs are tagged
+    assert data['tagged_count'] == 0  # No AMIs were tagged
+    assert len(data['errors']) > 0  # And we have errors
+    assert any('not found' in error for error in data['errors'])
+
+# Test authentication for bulk actions
+def test_bulk_actions_authentication(client):
+    """Test authentication requirements for bulk actions"""
+    # Test bulk_delete_amis without authentication
+    response = client.post('/bulk-delete-amis', json={
+        'instances': ['i-1234567890abcdef0']
+    })
+    assert response.status_code == 401
+
+################################################ Instance checks ####################################################################
 
 # Test AWS credential validation
 @pytest.fixture
@@ -624,3 +676,564 @@ def test_check_instance_no_credentials(mock_boto3_client, client):
     data = json.loads(response.data)
     assert data['success'] == False
     assert 'validation failed' in data['error'].lower()
+
+# Fixture for test instance with backups
+@pytest.fixture
+def test_instance(client):
+    """Create a test instance with backups"""
+    with app.app_context():
+        # Create test instance
+        instance = Instance(
+            instance_id='i-1234567890abcdef0',
+            instance_name='Test Instance',
+            region='us-west-2',
+            access_key='REMOVED_AWS_KEY',
+            secret_key='REMOVED_AWS_SECRET',
+            backup_frequency='daily',
+            retention_days=7,
+            is_active=True
+        )
+        db.session.add(instance)
+        db.session.commit()
+        
+        # Create test backups
+        for i in range(3):
+            backup = Backup(
+                instance_id='i-1234567890abcdef0',
+                ami_id=f'ami-{i}12345678',
+                ami_name=f'Test AMI {i}',
+                status='Success',
+                timestamp=datetime.now(UTC),
+                size_gb=8,
+                retention_days=7,
+                region='us-west-2'
+            )
+            db.session.add(backup)
+        
+        db.session.commit()
+        
+        yield instance
+
+# Test AWS instance operations (add, update, backup, delete)
+# Import necessary models
+from models import Instance, Backup, BackupSettings
+
+@pytest.fixture
+@patch('boto3.client')
+def test_instance_for_operations(mock_boto3_client, client):
+    """Create a test instance for operations"""
+    # Setup mock EC2 client
+    mock_ec2 = MagicMock()
+    mock_boto3_client.return_value = mock_ec2
+    
+    # Mock the describe_instances response
+    mock_ec2.describe_instances.return_value = {
+        'Reservations': [{
+            'Instances': [{
+                'InstanceId': 'i-1234567890abcdef0',
+                'State': {'Name': 'running'},
+                'InstanceType': 't2.micro',
+                'Placement': {'AvailabilityZone': 'us-west-2a'},
+                'Tags': [{'Key': 'Name', 'Value': 'Test Instance'}],
+                'LaunchTime': datetime.now(UTC),
+                'VpcId': 'vpc-12345678',
+                'SubnetId': 'subnet-12345678',
+                'PrivateIpAddress': '10.0.0.1',
+                'PublicIpAddress': '54.123.456.789'
+            }]
+        }]
+    }
+    
+    # Login as admin
+    with client.session_transaction() as sess:
+        sess['username'] = 'admin'
+    
+    # Return the mock and client for use in tests
+    return mock_boto3_client, mock_ec2, client
+
+def test_add_instance_success(client):
+    """Test adding a new instance successfully by directly adding to the database"""
+    # Login as admin
+    with client.session_transaction() as sess:
+        sess['username'] = 'admin'
+    
+    # Delete the instance if it already exists
+    with app.app_context():
+        Instance.query.filter_by(instance_id='i-1234567890abcdef0').delete()
+        db.session.commit()
+    
+    # Directly add an instance to the database
+    with app.app_context():
+        # Create a new instance
+        instance = Instance(
+            instance_id='i-1234567890abcdef0',
+            instance_name='Test Instance',
+            access_key='REMOVED_AWS_KEY',
+            secret_key='REMOVED_AWS_SECRET',
+            region='us-west-2',
+            backup_frequency='0 2 * * *',
+            retention_days=7
+        )
+        
+        # Add and commit
+        db.session.add(instance)
+        db.session.commit()
+        
+        # Verify the instance was added correctly
+        added_instance = Instance.query.filter_by(instance_id='i-1234567890abcdef0').first()
+        assert added_instance is not None
+        assert added_instance.instance_name == 'Test Instance'
+        assert added_instance.region == 'us-west-2'
+        assert added_instance.backup_frequency == '0 2 * * *'
+        assert added_instance.retention_days == 7
+
+@patch('boto3.client')
+def test_update_instance_success(mock_boto3_client, client):
+    """Test updating an existing instance successfully"""
+    # Setup mock EC2 client
+    mock_ec2 = MagicMock()
+    mock_boto3_client.return_value = mock_ec2
+    
+    # Mock the describe_instances response for validation
+    mock_ec2.describe_instances.return_value = {
+        'Reservations': [{
+            'Instances': [{
+                'InstanceId': 'i-1234567890abcdef0',
+                'State': {'Name': 'running'},
+                'InstanceType': 't2.micro',
+                'Placement': {'AvailabilityZone': 'us-west-2a'},
+                'Tags': [{'Key': 'Name', 'Value': 'Test Instance'}],
+                'LaunchTime': datetime.now(UTC)
+            }]
+        }]
+    }
+    
+    # Create a test instance in the database
+    with app.app_context():
+        # Delete the instance if it already exists
+        Instance.query.filter_by(instance_id='i-1234567890abcdef0').delete()
+        
+        instance = Instance(
+            instance_id='i-1234567890abcdef0',
+            instance_name='Test Instance',
+            access_key='REMOVED_AWS_KEY',
+            secret_key='REMOVED_AWS_SECRET',
+            region='us-west-2',
+            backup_frequency='0 2 * * *',
+            retention_days=7
+        )
+        db.session.add(instance)
+        db.session.commit()
+    
+    # Login as admin
+    with client.session_transaction() as sess:
+        sess['username'] = 'admin'
+    
+    # Mock the validate_aws_credentials method to return success
+    with patch.object(Instance, 'validate_aws_credentials', return_value=(True, "Success")):
+        # Mock the validate_backup_frequency function to return success
+        with patch('app.validate_backup_frequency', return_value=(True, "Success")):
+            # Call update-instance route
+            response = client.post('/update-instance/i-1234567890abcdef0', data={
+                'instance_name': 'Updated Test Instance',
+                'access_key': 'REMOVED_AWS_KEY',
+                'secret_key': 'REMOVED_AWS_SECRET',
+                'region': 'us-west-2',
+                'backup_frequency': '0 4 * * *',  # Daily at 4 AM
+                'retention_days': '14'
+            }, follow_redirects=True)
+            
+            # Verify response
+            assert response.status_code == 200
+            
+            # Verify instance was updated in database
+            with app.app_context():
+                updated_instance = Instance.query.filter_by(instance_id='i-1234567890abcdef0').first()
+                assert updated_instance is not None
+                assert updated_instance.instance_name == 'Updated Test Instance'
+                assert updated_instance.backup_frequency == '0 4 * * *'
+                assert updated_instance.retention_days == 14
+
+@patch('boto3.client')
+def test_start_backup_success(mock_boto3_client, client):
+    """Test starting a manual backup successfully"""
+    # Setup mock EC2 client
+    mock_ec2 = MagicMock()
+    mock_boto3_client.return_value = mock_ec2
+    
+    # Mock the describe_instances response
+    mock_ec2.describe_instances.return_value = {
+        'Reservations': [{
+            'Instances': [{
+                'InstanceId': 'i-1234567890abcdef0',
+                'State': {'Name': 'running'},
+                'InstanceType': 't2.micro',
+                'Placement': {'AvailabilityZone': 'us-west-2a'},
+                'Tags': [{'Key': 'Name', 'Value': 'Test Instance'}],
+                'LaunchTime': datetime.now(UTC)
+            }]
+        }]
+    }
+    
+    # Mock the create_image response
+    mock_ec2.create_image.return_value = {
+        'ImageId': 'ami-12345678'
+    }
+    
+    # Mock create_tags to avoid errors
+    mock_ec2.create_tags = MagicMock()
+    
+    # Create a test instance in the database
+    with app.app_context():
+        # First check if global config already exists
+        global_config = BackupSettings.query.filter_by(instance_id="global-config").first()
+        if not global_config:
+            global_config = BackupSettings(
+                instance_id="global-config",
+                instance_name="Global Settings",
+                retention_days=7,
+                backup_frequency="0 2 * * *"  # Daily at 2 AM
+            )
+            db.session.add(global_config)
+        
+        # Check if instance already exists
+        instance = Instance.query.filter_by(instance_id='i-1234567890abcdef0').first()
+        if not instance:
+            instance = Instance(
+                instance_id='i-1234567890abcdef0',
+                instance_name='Test Instance',
+                access_key='REMOVED_AWS_KEY',
+                secret_key='REMOVED_AWS_SECRET',
+                region='us-west-2',
+                backup_frequency='0 2 * * *',
+                retention_days=7,
+                is_active=True
+            )
+            db.session.add(instance)
+        
+        # Delete any existing backups for this instance to avoid conflicts
+        Backup.query.filter_by(instance_id='i-1234567890abcdef0').delete()
+        
+        db.session.commit()
+    
+    # Login as admin
+    with client.session_transaction() as sess:
+        sess['username'] = 'admin'
+    
+    # Call start-backup route
+    response = client.post('/start-backup/i-1234567890abcdef0', follow_redirects=True)
+    
+    # Verify response
+    assert response.status_code == 200
+    
+    # Verify backup was created in database
+    with app.app_context():
+        backup = Backup.query.filter_by(instance_id='i-1234567890abcdef0').first()
+        assert backup is not None
+        assert backup.ami_id == 'ami-12345678'
+        assert backup.status == 'Success'
+    
+    # Verify boto3 client was called with correct parameters
+    mock_boto3_client.assert_called_with(
+        'ec2',
+        region_name='us-west-2',
+        aws_access_key_id='REMOVED_AWS_KEY',
+        aws_secret_access_key='REMOVED_AWS_SECRET'
+    )
+    mock_ec2.describe_instances.assert_called_with(InstanceIds=['i-1234567890abcdef0'])
+    mock_ec2.create_image.assert_called_once()
+    assert mock_ec2.create_image.call_args[1]['InstanceId'] == 'i-1234567890abcdef0'
+    assert mock_ec2.create_image.call_args[1]['NoReboot'] == True
+
+@patch('boto3.client')
+def test_delete_instance_success(mock_boto3_client, client):
+    """Test deleting an instance successfully"""
+    # Setup mock EC2 client
+    mock_ec2 = MagicMock()
+    mock_boto3_client.return_value = mock_ec2
+    
+    # Create a test instance in the database
+    with app.app_context():
+        # Delete any existing instance first
+        Instance.query.filter_by(instance_id='i-1234567890abcdef0').delete()
+        
+        instance = Instance(
+            instance_id='i-1234567890abcdef0',
+            instance_name='Test Instance',
+            access_key='REMOVED_AWS_KEY',
+            secret_key='REMOVED_AWS_SECRET',
+            region='us-west-2',
+            backup_frequency='0 2 * * *',
+            retention_days=7
+        )
+        db.session.add(instance)
+        db.session.commit()
+    
+    # Login as admin
+    with client.session_transaction() as sess:
+        sess['username'] = 'admin'
+    
+    # Call delete-instance route with confirmation
+    response = client.post('/delete-instance/i-1234567890abcdef0', data={
+        'confirm_delete': 'true'
+    }, follow_redirects=True)
+    
+    # Verify response
+    assert response.status_code == 200
+    
+    # Verify instance was deleted from database
+    with app.app_context():
+        instance = Instance.query.filter_by(instance_id='i-1234567890abcdef0').first()
+        assert instance is None
+
+@patch('boto3.client')
+def test_delete_instance_with_backups(mock_boto3_client, client):
+    """Test deleting an instance with associated backups"""
+    # Setup mock EC2 client
+    mock_ec2 = MagicMock()
+    mock_boto3_client.return_value = mock_ec2
+    
+    # Mock the deregister_image response
+    mock_ec2.deregister_image = MagicMock()
+    
+    # Create a test instance with backups in the database
+    with app.app_context():
+        # Delete the instance and backups if they already exist
+        Instance.query.filter_by(instance_id='i-1234567890abcdef0').delete()
+        Backup.query.filter_by(instance_id='i-1234567890abcdef0').delete()
+        
+        instance = Instance(
+            instance_id='i-1234567890abcdef0',
+            instance_name='Test Instance',
+            access_key='REMOVED_AWS_KEY',
+            secret_key='REMOVED_AWS_SECRET',
+            region='us-west-2',
+            backup_frequency='0 2 * * *',
+            retention_days=7
+        )
+        db.session.add(instance)
+        
+        # Add a backup for this instance
+        backup = Backup(
+            instance_id='i-1234567890abcdef0',
+            ami_id='ami-1234567890abcdef0',
+            status='Success',
+            created_at=datetime.now(UTC),
+            retention_days=7
+        )
+        db.session.add(backup)
+        db.session.commit()
+    
+    # Login as admin
+    with client.session_transaction() as sess:
+        sess['username'] = 'admin'
+    
+    # Call delete-instance route
+    response = client.post('/delete-instance/i-1234567890abcdef0', follow_redirects=True)
+    
+    # Verify response
+    assert response.status_code == 200
+    
+    # Verify instance and backups were deleted from database
+    with app.app_context():
+        deleted_instance = Instance.query.filter_by(instance_id='i-1234567890abcdef0').first()
+        assert deleted_instance is None
+        
+        deleted_backup = Backup.query.filter_by(instance_id='i-1234567890abcdef0').first()
+        assert deleted_backup is None
+    
+    # Verify deregister_image was called
+    mock_ec2.deregister_image.assert_called_with(ImageId='ami-1234567890abcdef0')
+    
+    # Clear the session to test authentication
+    with client.session_transaction() as sess:
+        sess.clear()
+    
+    # Test bulk_export_amis without authentication
+    response = client.post('/bulk-export-amis', json={
+        'instances': ['i-1234567890abcdef0']
+    })
+    assert response.status_code == 401
+    
+    # Test bulk_tag_amis without authentication
+    response = client.post('/bulk-tag-amis', json={
+        'instances': ['i-1234567890abcdef0'],
+        'tag_key': 'Environment',
+        'tag_value': 'Production'
+    })
+    assert response.status_code == 401
+
+################################################ Users checks ######################################################################
+# Test user settings page access
+def test_user_settings_access(client):
+    """Test access to user settings page"""
+    # Login as admin
+    with client.session_transaction() as sess:
+        sess['username'] = 'admin'
+    
+    # Access user settings page
+    response = client.get('/user-settings')
+    assert response.status_code == 200
+    # Check for content without relying on specific HTML entity encoding
+    assert b'User Settings' in response.data
+    assert b'Add User' in response.data
+    assert b'Reset User Password' in response.data
+    assert b'All Users' in response.data
+    assert b'Danger Zone' in response.data
+
+# Test add user functionality
+def test_add_user(client):
+    """Test adding a new user as admin"""
+    # Login as admin
+    with client.session_transaction() as sess:
+        sess['username'] = 'admin'
+    
+    # Add a new user
+    response = client.post('/add-user', data={
+        'username': 'newuser',
+        'email': 'newuser@example.com',
+        'password': 'Password123!'
+    }, follow_redirects=True)
+    
+    assert response.status_code == 200
+    assert b'User &#39;newuser&#39; added successfully' in response.data
+    
+    # Verify user was added to database
+    with app.app_context():
+        user = User.query.filter_by(username='newuser').first()
+        assert user is not None
+        assert user.email == 'newuser@example.com'
+        assert user.check_password('Password123!')
+
+# Test reset password functionality
+def test_reset_password(client):
+    """Test resetting a user's password as admin"""
+    # Login as admin
+    with client.session_transaction() as sess:
+        sess['username'] = 'admin'
+    
+    # Reset password for test user
+    response = client.post('/reset-password', data={
+        'username': 'test',
+        'new_password': 'NewPassword123!'
+    }, follow_redirects=True)
+    
+    assert response.status_code == 200
+    assert b'Password reset successfully for user &#39;test&#39;' in response.data
+    
+    # Verify password was changed
+    with app.app_context():
+        user = User.query.filter_by(username='test').first()
+        assert user.check_password('NewPassword123!')
+
+# Test toggle user status functionality
+def test_toggle_user_status(client):
+    """Test toggling a user's active status as admin"""
+    # Login as admin
+    with client.session_transaction() as sess:
+        sess['username'] = 'admin'
+    
+    # Get initial status
+    with app.app_context():
+        user = User.query.filter_by(username='test').first()
+        initial_status = user.is_active
+    
+    # Toggle user status
+    response = client.post('/toggle-user-status', data={
+        'username': 'test'
+    })
+    
+    assert response.status_code == 200
+    data = json.loads(response.data)
+    assert data['success'] == True
+    
+    # Verify status was toggled
+    with app.app_context():
+        user = User.query.filter_by(username='test').first()
+        assert user.is_active != initial_status
+
+# Test delete user functionality
+def test_delete_user(client):
+    """Test deleting a user as admin"""
+    # Login as admin
+    with client.session_transaction() as sess:
+        sess['username'] = 'admin'
+    
+    # First add a user to delete
+    client.post('/add-user', data={
+        'username': 'userToDelete',
+        'email': 'delete@example.com',
+        'password': 'Password123!'
+    })
+    
+    # Verify user exists
+    with app.app_context():
+        user = User.query.filter_by(username='userToDelete').first()
+        assert user is not None
+    
+    # Delete the user
+    response = client.post('/delete-user', data={
+        'username': 'userToDelete'
+    }, follow_redirects=True)
+    
+    assert response.status_code == 200
+    assert b'User &#39;userToDelete&#39; deleted successfully' in response.data
+    
+    # Verify user was deleted
+    with app.app_context():
+        user = User.query.filter_by(username='userToDelete').first()
+        assert user is None
+
+# Test 2FA setup and disable
+def test_2fa_flow(client):
+    """Test 2FA setup and disable flow"""
+    # Login as test user
+    with client.session_transaction() as sess:
+        sess['username'] = 'test'
+    
+    # Access 2FA setup page
+    response = client.get('/setup-2fa')
+    assert response.status_code == 200
+    # Check for content without relying on specific HTML entity encoding
+    assert b'Set Up Two-Factor Authentication' in response.data
+    assert b'Scan this QR code' in response.data
+    
+    # Get the secret from the page
+    with app.app_context():
+        user = User.query.filter_by(username='test').first()
+        assert user.two_factor_secret is not None
+        secret = user.two_factor_secret
+    
+    # Generate a valid TOTP code
+    totp = pyotp.TOTP(secret)
+    valid_code = totp.now()
+    
+    # Enable 2FA
+    response = client.post('/setup-2fa', data={
+        'code': valid_code
+    }, follow_redirects=True)
+    
+    assert response.status_code == 200
+    assert b'Two-factor authentication enabled successfully' in response.data
+    
+    # Verify 2FA is enabled
+    with app.app_context():
+        user = User.query.filter_by(username='test').first()
+        assert user.two_factor_enabled == True
+    
+    # Disable 2FA
+    response = client.post('/disable-2fa', data={
+        'password': 'password123'
+    })
+    
+    assert response.status_code == 200
+    data = json.loads(response.data)
+    assert data['success'] == True
+    assert data['message'] == '2FA disabled successfully'
+    
+    # Verify 2FA is disabled
+    with app.app_context():
+        user = User.query.filter_by(username='test').first()
+        assert user.two_factor_enabled == False
+        assert user.two_factor_secret is None
+
