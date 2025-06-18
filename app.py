@@ -3200,7 +3200,7 @@ def api_backup_detail(backup_id):
         return jsonify({'error': 'Not authenticated'}), 401
     
     try:
-        backup = Backup.query.get(backup_id)
+        backup = db.session.get(Backup, backup_id)
         
         if not backup:
             return jsonify({'error': 'Backup not found'}), 404
@@ -4959,6 +4959,22 @@ def init_app():
             db.session.add(admin_user)
             db.session.commit()
             logger.info(f"✅ Default admin user '{admin_username}' created successfully")
+        
+        # Create default backup settings if they don't exist
+        default_settings = BackupSettings.query.first()
+        if not default_settings:
+            # Get default backup settings from environment variables
+            default_backup_frequency = os.environ.get('DEFAULT_BACKUP_FREQUENCY', '0 2 * * *')
+            default_retention_days = int(os.environ.get('DEFAULT_RETENTION_DAYS', '7'))
+            
+            # Create default backup settings
+            default_settings = BackupSettings(
+                backup_frequency=default_backup_frequency,
+                retention_days=default_retention_days
+            )
+            db.session.add(default_settings)
+            db.session.commit()
+            logger.info(f"✅ Default backup settings created: frequency='{default_backup_frequency}', retention={default_retention_days} days")
         
         # Initialize scheduler
         if not scheduler.running:

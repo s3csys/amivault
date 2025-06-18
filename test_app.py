@@ -1237,7 +1237,7 @@ def test_2fa_flow(client):
         assert user.two_factor_enabled == False
         assert user.two_factor_secret is None
 
-
+################################################ api checks ######################################################################
 # API Tests
 def test_api_instances_unauthorized(client):
     """Test /api/instances endpoint without authentication"""

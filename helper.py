@@ -319,6 +319,20 @@ def recreate_database(interactive=True):
             # Import required functions
             from app import schedule_all_instance_backups, scheduler
             
+            # Get default backup settings from environment variables
+            default_backup_frequency = os.environ.get('DEFAULT_BACKUP_FREQUENCY', '0 2 * * *')
+            default_retention_days = int(os.environ.get('DEFAULT_RETENTION_DAYS', '7'))
+            
+            # Create default backup settings
+            from models import BackupSettings
+            default_settings = BackupSettings(
+                backup_frequency=default_backup_frequency,
+                retention_days=default_retention_days
+            )
+            db.session.add(default_settings)
+            db.session.commit()
+            print(f"✅ Default backup settings created: frequency='{default_backup_frequency}', retention={default_retention_days} days")
+            
             # Start scheduler if not running
             if not scheduler.running:
                 scheduler.start()
