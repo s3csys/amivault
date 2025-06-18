@@ -1,64 +1,153 @@
+<div align="center">
+
 # AMIVault
 
-AMIVault is a professional Flask-based web application for managing AWS EC2 AMI backups and schedules. It provides a secure, user-friendly dashboard to automate, view, and control AMI creation, deletion, and backup scheduling across multiple AWS accounts and regions.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.8+](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Flask](https://img.shields.io/badge/Flask-2.3.2-green.svg)](https://flask.palletsprojects.com/)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+
+**Professional AWS EC2 AMI Backup Management Solution**
 
 ![AMIVault Dashboard](https://via.placeholder.com/800x400?text=AMIVault+Dashboard)
 
+*Secure, automated, and extensible AWS AMI backup management across multiple accounts and regions*
+
+[Features](#features) • [Installation](#getting-started) • [Usage](#usage-guide) • [API](#api-documentation) • [Deployment](#deployment) • [Contributing](#contributing)
+
+</div>
+
 ---
+
+## Table of Contents
+
+- [Overview](#amivault)
+- [Features](#features)
+- [Tech Stack](#tech-stack)
+- [Getting Started](#getting-started)
+  - [Prerequisites](#prerequisites)
+  - [Installation](#installation)
+  - [Default Admin Account](#default-admin-account)
+- [Usage Guide](#usage-guide)
+  - [Dashboard](#dashboard)
+  - [Managing Instances](#managing-instances)
+  - [Managing Backups](#managing-backups)
+  - [User Management](#user-management)
+- [Advanced Configuration](#advanced-configuration)
+  - [Scheduler Options](#scheduler-options)
+  - [Backup Frequency](#backup-frequency)
+  - [Logging](#logging)
+- [Deployment](#deployment)
+  - [Docker Deployment](#docker-deployment)
+  - [Production Considerations](#production-considerations)
+- [Testing](#testing)
+- [API Documentation](#api-documentation)
+- [Security Features](#security-features)
+- [Contributing](#contributing)
+- [License](#license)
+- [Acknowledgments](#acknowledgments)
+
+---
+
+## Overview
+
+AMIVault is a professional Flask-based web application for managing AWS EC2 AMI backups and schedules. It provides a secure, user-friendly dashboard to automate, view, and control AMI creation, deletion, and backup scheduling across multiple AWS accounts and regions.
 
 ## Features
 
-- **Automated AMI Backups:**  
-  Schedule and manage EC2 AMI backups with persistent job storage using APScheduler and SQLAlchemy. Support for both Python scheduler and AWS EventBridge.
-
-- **Dashboard Interface:**  
-  View, search, and manage all backups and schedules from a responsive web dashboard with real-time status updates.
-
-- **Secure AMI Deletion:**  
-  Deregister AMIs and delete associated snapshots, with credential prompts if instance records are missing.
-
-- **Credential Management:**  
-  AWS credentials are securely stored with proper encryption. Option to use temporary credentials for one-time operations.
-
-- **User Management:**  
-  Complete user authentication system with role-based access control, two-factor authentication (2FA), and account management.
-
-- **Robust Error Handling:**  
-  Comprehensive logging and error management with detailed feedback for all operations.
-
-- **Extensible Codebase:**  
-  Organized into modular, self-contained sections for easy integration and future expansion.
-
-- **Multi-Region Support:**  
-  Manage EC2 instances across multiple AWS regions from a single interface.
-
-- **Backup Retention Policies:**  
-  Configure custom retention periods for each instance to automatically clean up old AMIs.
+<table>
+  <tr>
+    <td width="50%">
+      <h3>🔄 Automated AMI Backups</h3>
+      <p>Schedule and manage EC2 AMI backups with persistent job storage using APScheduler and SQLAlchemy. Support for both Python scheduler and AWS EventBridge.</p>
+    </td>
+    <td width="50%">
+      <h3>📊 Dashboard Interface</h3>
+      <p>View, search, and manage all backups and schedules from a responsive web dashboard with real-time status updates.</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <h3>🔒 Secure AMI Deletion</h3>
+      <p>Deregister AMIs and delete associated snapshots, with credential prompts if instance records are missing.</p>
+    </td>
+    <td width="50%">
+      <h3>🔑 Credential Management</h3>
+      <p>AWS credentials are securely stored with proper encryption. Option to use temporary credentials for one-time operations.</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <h3>👥 User Management</h3>
+      <p>Complete user authentication system with role-based access control, two-factor authentication (2FA), and account management.</p>
+    </td>
+    <td width="50%">
+      <h3>⚠️ Robust Error Handling</h3>
+      <p>Comprehensive logging and error management with detailed feedback for all operations.</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <h3>🧩 Extensible Codebase</h3>
+      <p>Organized into modular, self-contained sections for easy integration and future expansion.</p>
+    </td>
+    <td width="50%">
+      <h3>🌎 Multi-Region Support</h3>
+      <p>Manage EC2 instances across multiple AWS regions from a single interface.</p>
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2">
+      <h3>⏱️ Backup Retention Policies</h3>
+      <p>Configure custom retention periods for each instance to automatically clean up old AMIs.</p>
+    </td>
+  </tr>
+</table>
 
 ---
 
 ## Tech Stack
 
-- **Backend:** 
-  - Flask 2.3.2 - Web framework
-  - Flask-SQLAlchemy 3.1.1 - ORM for database operations
-  - Flask-APScheduler 1.13.1 - Job scheduling
-  - boto3 1.28.22 - AWS SDK for Python
-  - pyotp 2.9.0 - Two-factor authentication
+<div align="center">
 
-- **Frontend:** 
-  - Bootstrap 5 - Responsive UI framework
-  - SweetAlert2 - Enhanced alerts and modals
-  - Jinja2 3.1.2 - Template engine
+### Core Technologies
 
-- **Security:**
-  - Werkzeug 2.3.7 - Password hashing and security utilities
-  - QR code generation for 2FA setup
+| Category | Technologies |
+|:--------:|:------------:|
+| ![Python](https://img.shields.io/badge/Python-3.8+-blue?style=for-the-badge&logo=python&logoColor=white) | ![Flask](https://img.shields.io/badge/Flask-2.3.2-green?style=for-the-badge&logo=flask&logoColor=white) |
 
-- **Database:** 
-  - SQLite (default, easily extendable to PostgreSQL/MySQL)
+</div>
 
-- **Python Version:** 3.8+
+### Backend Components
+
+| Component | Description | Version |
+|-----------|-------------|:-------:|
+| **Flask** | Web framework | 2.3.2 |
+| **Flask-SQLAlchemy** | ORM for database operations | 3.1.1 |
+| **Flask-APScheduler** | Job scheduling | 1.13.1 |
+| **boto3** | AWS SDK for Python | 1.28.22 |
+| **pyotp** | Two-factor authentication | 2.9.0 |
+
+### Frontend Components
+
+| Component | Description | Version |
+|-----------|-------------|:-------:|
+| **Bootstrap** | Responsive UI framework | 5 |
+| **SweetAlert2** | Enhanced alerts and modals | Latest |
+| **Jinja2** | Template engine | 3.1.2 |
+
+### Security Components
+
+| Component | Description | Version |
+|-----------|-------------|:-------:|
+| **Werkzeug** | Password hashing and security utilities | 2.3.7 |
+| **QR Code Generation** | For 2FA setup | Built-in |
+
+### Database
+
+- **Default:** SQLite (for development)
+- **Production Options:** PostgreSQL, MySQL
+- **ORM:** SQLAlchemy (database-agnostic)
 
 ---
 
@@ -66,32 +155,81 @@ AMIVault is a professional Flask-based web application for managing AWS EC2 AMI 
 
 ### Prerequisites
 
-- Python 3.8 or newer
-- pip package manager
-- AWS account with appropriate permissions for EC2 management
+<table>
+  <tr>
+    <td><b>Requirement</b></td>
+    <td><b>Details</b></td>
+  </tr>
+  <tr>
+    <td>Python</td>
+    <td>Version 3.8 or newer</td>
+  </tr>
+  <tr>
+    <td>Package Manager</td>
+    <td>pip (latest version recommended)</td>
+  </tr>
+  <tr>
+    <td>AWS Account</td>
+    <td>With EC2 management permissions</td>
+  </tr>
+  <tr>
+    <td>Storage</td>
+    <td>Minimum 100MB free disk space</td>
+  </tr>
+  <tr>
+    <td>Memory</td>
+    <td>Minimum 512MB RAM (1GB+ recommended)</td>
+  </tr>
+</table>
 
 ### Installation
 
-1. **Clone the Repository**
+<details open>
+<summary><b>Step 1: Clone the Repository</b></summary>
+
 ```bash
+# Clone the repository
 git clone https://github.com/s3csys/amivault.git
+
+# Navigate to project directory
 cd amivault
 ```
+</details>
 
-2. **Install Dependencies**
+<details open>
+<summary><b>Step 2: Set Up Virtual Environment (Recommended)</b></summary>
+
 ```bash
+# Create virtual environment
+python -m venv venv
+
+# Activate virtual environment
+# On Windows:
+venv\Scripts\activate
+# On macOS/Linux:
+source venv/bin/activate
+```
+</details>
+
+<details open>
+<summary><b>Step 3: Install Dependencies</b></summary>
+
+```bash
+# Install required packages
 pip install -r requirements.txt
 ```
+</details>
 
-3. **Configure Environment Variables**
+<details open>
+<summary><b>Step 4: Configure Environment Variables</b></summary>
 
 Create a `.env` file in the root directory with the following variables:
 
-```
+```ini
 # Flask Configuration
 FLASK_APP=app.py
 FLASK_ENV=development  # Change to 'production' for production deployment
-FLASK_DEBUG=0     # Change to 1 if you want to enable the debug mode
+FLASK_DEBUG=0          # Change to 1 to enable debug mode
 FLASK_HOST=0.0.0.0
 FLASK_PORT=5000
 SECRET_KEY=your_secure_secret_key  # Generate a strong random key
@@ -117,29 +255,52 @@ LOG_FORMAT=%(asctime)s - %(name)s - %(levelname)s - %(message)s
 LOG_DATE_FORMAT=%Y-%m-%d %H:%M:%S
 LOG_MAX_BYTES=10485760
 LOG_BACKUP_COUNT=5
-
 ```
 
-4. **Initialize the Database**
+> **Note:** For production environments, use a secure random key generator for the `SECRET_KEY`.
+</details>
+
+<details open>
+<summary><b>Step 5: Initialize the Database</b></summary>
+
 ```bash
+# Create database tables
 python -c "from app import app, db; app.app_context().push(); db.create_all()"
 ```
+</details>
 
-5. **Run the Application**
+<details open>
+<summary><b>Step 6: Run the Application</b></summary>
+
 ```bash
+# Start the application
 python app.py
 ```
 
-The app will be available at [http://localhost:8080/](http://localhost:8080/)
+The application will be available at [http://localhost:8080/](http://localhost:8080/)
+</details>
 
 ### Default Admin Account
 
-If you don't set custom admin credentials in the `.env` file, the system will create:
-
-- **Username:** `admin`
-- **Password:** `your_secure_password`  
-
-**⚠️ IMPORTANT:** Change the default password immediately in production environments!
+<div class="alert alert-warning">
+<table>
+  <tr>
+    <td width="10%">⚠️</td>
+    <td><b>SECURITY NOTICE</b></td>
+  </tr>
+  <tr>
+    <td></td>
+    <td>
+      If you don't set custom admin credentials in the <code>.env</code> file, the system will create:<br>
+      <ul>
+        <li><b>Username:</b> <code>admin</code></li>
+        <li><b>Password:</b> <code>your_secure_password</code></li>
+      </ul>
+      <b>IMPORTANT:</b> Change the default password immediately in production environments!
+    </td>
+  </tr>
+</table>
+</div>
 
 ---
 
@@ -319,67 +480,364 @@ The test suite covers:
 
 ## API Documentation
 
-AMIVault provides a RESTful API for integration with other systems:
+AMIVault provides a comprehensive RESTful API for seamless integration with other systems and automation workflows.
 
-- **Authentication:** `/api/login` (POST) 
-- **Instances:** `/api/instances` (GET) 
-- **AMIs:** `/api/amis` (GET) 
-- **Backups:** `/api/backups` (GET) 
-- **Backup Details:** `/api/backup/<backup_id>` (GET) 
-- **Backup Settings:** `/api/backup-settings` (GET) 
-- **AWS Credentials:** `/api/aws-credentials` (GET) 
-- **API Documentation:** `/api/docs` (GET) 
-- **Schedules:** `/api/schedules/refresh` (GET)
+<div align="center">
 
-API documentation is available at `/api/docs` when running the application.
+### API Overview
+
+[![API Documentation](https://img.shields.io/badge/API_Docs-Available-success.svg)](http://localhost:8080/api/docs)
+[![API Version](https://img.shields.io/badge/API_Version-v1-blue.svg)](http://localhost:8080/api/docs)
+
+</div>
+
+### Available Endpoints
+
+<table>
+  <tr>
+    <th>Category</th>
+    <th>Endpoint</th>
+    <th>Method</th>
+    <th>Description</th>
+    <th>Authentication</th>
+  </tr>
+  <tr>
+    <td rowspan="1">Authentication</td>
+    <td><code>/api/login</code></td>
+    <td>POST</td>
+    <td>Authenticate and receive access token</td>
+    <td>None</td>
+  </tr>
+  <tr>
+    <td rowspan="1">Instances</td>
+    <td><code>/api/instances</code></td>
+    <td>GET</td>
+    <td>List all EC2 instances</td>
+    <td>Required</td>
+  </tr>
+  <tr>
+    <td rowspan="1">AMIs</td>
+    <td><code>/api/amis</code></td>
+    <td>GET</td>
+    <td>List all AMIs</td>
+    <td>Required</td>
+  </tr>
+  <tr>
+    <td rowspan="2">Backups</td>
+    <td><code>/api/backups</code></td>
+    <td>GET</td>
+    <td>List all backups</td>
+    <td>Required</td>
+  </tr>
+  <tr>
+    <td><code>/api/backup/&lt;backup_id&gt;</code></td>
+    <td>GET</td>
+    <td>Get details for a specific backup</td>
+    <td>Required</td>
+  </tr>
+  <tr>
+    <td rowspan="1">Settings</td>
+    <td><code>/api/backup-settings</code></td>
+    <td>GET</td>
+    <td>Get backup configuration settings</td>
+    <td>Required</td>
+  </tr>
+  <tr>
+    <td rowspan="1">Credentials</td>
+    <td><code>/api/aws-credentials</code></td>
+    <td>GET</td>
+    <td>List stored AWS credentials</td>
+    <td>Required</td>
+  </tr>
+  <tr>
+    <td rowspan="1">Schedules</td>
+    <td><code>/api/schedules/refresh</code></td>
+    <td>GET</td>
+    <td>Refresh backup schedules</td>
+    <td>Required</td>
+  </tr>
+  <tr>
+    <td rowspan="1">Documentation</td>
+    <td><code>/api/docs</code></td>
+    <td>GET</td>
+    <td>Interactive API documentation</td>
+    <td>Required</td>
+  </tr>
+</table>
+
+### Authentication
+
+All API endpoints (except `/api/login`) require authentication using a JWT token.
+
+```http
+GET /api/instances HTTP/1.1
+Host: localhost:8080
+Authorization: Bearer <your_jwt_token>
+Content-Type: application/json
+```
+
+### Interactive Documentation
+
+Complete API documentation with request/response examples is available at `/api/docs` when running the application. This interactive documentation allows you to:
+
+- Explore all available endpoints
+- Test API calls directly from the browser
+- View request/response schemas
+- Understand authentication requirements
 
 ---
 
 ## Security Features
 
-- **Password Security:** Secure password hashing using Werkzeug
-- **Two-Factor Authentication:** TOTP-based 2FA with QR code setup
-- **Session Management:** Secure session handling with timeout
-- **Input Validation:** Comprehensive validation for all user inputs
-- **AWS Credential Security:** Proper encryption for stored credentials
-- **CSRF Protection:** Cross-Site Request Forgery protection
-- **Comprehensive Logging:** Security event logging for audit trails
+<div align="center">
+
+### Security Overview
+
+[![Security](https://img.shields.io/badge/Security-Enterprise_Grade-blue.svg)](https://github.com/s3csys/amivault)
+[![2FA](https://img.shields.io/badge/2FA-Enabled-success.svg)](https://github.com/s3csys/amivault)
+[![Encryption](https://img.shields.io/badge/Encryption-AES_256-green.svg)](https://github.com/s3csys/amivault)
+
+</div>
+
+AMIVault implements enterprise-grade security features to protect your AWS resources and user data:
+
+<table>
+  <tr>
+    <td width="50%">
+      <h3>🔒 Password Security</h3>
+      <ul>
+        <li>Secure password hashing using Werkzeug's PBKDF2 algorithm</li>
+        <li>Salted hashes with high iteration count</li>
+        <li>Password complexity requirements enforcement</li>
+        <li>Protection against brute force attacks</li>
+      </ul>
+    </td>
+    <td width="50%">
+      <h3>🔐 Two-Factor Authentication (2FA)</h3>
+      <ul>
+        <li>TOTP-based (Time-based One-Time Password) authentication</li>
+        <li>QR code setup for easy enrollment</li>
+        <li>Compatible with Google Authenticator, Authy, and other TOTP apps</li>
+        <li>Backup codes for emergency access</li>
+      </ul>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <h3>⏱️ Session Management</h3>
+      <ul>
+        <li>Secure session handling with configurable timeout</li>
+        <li>Session invalidation on logout</li>
+        <li>Prevention of session fixation attacks</li>
+        <li>Secure cookie settings with HttpOnly and SameSite flags</li>
+      </ul>
+    </td>
+    <td width="50%">
+      <h3>✅ Input Validation</h3>
+      <ul>
+        <li>Comprehensive validation for all user inputs</li>
+        <li>Protection against SQL injection</li>
+        <li>Protection against XSS (Cross-Site Scripting)</li>
+        <li>Sanitization of user-provided data</li>
+      </ul>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <h3>🔑 AWS Credential Security</h3>
+      <ul>
+        <li>AES-256 encryption for stored credentials</li>
+        <li>Key rotation capabilities</li>
+        <li>Option for temporary credential usage</li>
+        <li>Principle of least privilege for AWS operations</li>
+      </ul>
+    </td>
+    <td width="50%">
+      <h3>🛡️ CSRF Protection</h3>
+      <ul>
+        <li>Cross-Site Request Forgery protection</li>
+        <li>Unique CSRF tokens for each session</li>
+        <li>Token validation for all state-changing operations</li>
+        <li>Protection against clickjacking with X-Frame-Options</li>
+      </ul>
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2">
+      <h3>📝 Comprehensive Logging</h3>
+      <ul>
+        <li>Security event logging for audit trails</li>
+        <li>Detailed logs for authentication attempts</li>
+        <li>Resource access and modification tracking</li>
+        <li>Log rotation and secure storage</li>
+        <li>Configurable log levels and formats</li>
+      </ul>
+    </td>
+  </tr>
+</table>
+
+### Security Best Practices
+
+AMIVault follows industry-standard security best practices:
+
+- Regular security updates and dependency scanning
+- Defense-in-depth approach with multiple security layers
+- Principle of least privilege for all operations
+- Secure development lifecycle with code reviews and security testing
 
 ---
 
 ## Contributing
 
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/YourFeature`)
-3. Run tests to ensure everything works (`python -m pytest`)
-4. Commit your changes (`git commit -m 'Add some feature'`)
-5. Push to the branch (`git push origin feature/YourFeature`)
-6. Open a pull request
+We welcome contributions from the community! Please follow these steps to contribute:
+
+<div align="center">
+
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+[![Contributors](https://img.shields.io/github/contributors/s3csys/amivault.svg)](https://github.com/s3csys/amivault/graphs/contributors)
+[![Issues](https://img.shields.io/github/issues/s3csys/amivault.svg)](https://github.com/s3csys/amivault/issues)
+
+</div>
+
+### Contribution Process
+
+1. **Fork the Repository**
+   - Create your own fork of the project
+
+2. **Create a Feature Branch**
+   ```bash
+   git checkout -b feature/YourFeature
+   ```
+
+3. **Implement Your Changes**
+   - Add your feature or fix
+   - Follow the development guidelines below
+
+4. **Run Tests**
+   ```bash
+   python -m pytest
+   ```
+
+5. **Commit Your Changes**
+   ```bash
+   git commit -m 'Add: detailed description of your changes'
+   ```
+
+6. **Push to Your Branch**
+   ```bash
+   git push origin feature/YourFeature
+   ```
+
+7. **Open a Pull Request**
+   - Submit a PR with a clear description of your changes
+   - Link any relevant issues
 
 ### Development Guidelines
 
-- Follow PEP 8 style guidelines
-- Write tests for new features
-- Update documentation as needed
-- Maintain backward compatibility when possible
+<table>
+  <tr>
+    <td width="33%"><b>Code Style</b></td>
+    <td width="33%"><b>Testing</b></td>
+    <td width="33%"><b>Documentation</b></td>
+  </tr>
+  <tr>
+    <td>
+      <ul>
+        <li>Follow PEP 8 style guidelines</li>
+        <li>Use meaningful variable names</li>
+        <li>Keep functions small and focused</li>
+        <li>Use type hints where appropriate</li>
+      </ul>
+    </td>
+    <td>
+      <ul>
+        <li>Write tests for all new features</li>
+        <li>Maintain >80% test coverage</li>
+        <li>Include both unit and integration tests</li>
+        <li>Test edge cases thoroughly</li>
+      </ul>
+    </td>
+    <td>
+      <ul>
+        <li>Update documentation for new features</li>
+        <li>Add docstrings to all functions</li>
+        <li>Keep the README up to date</li>
+        <li>Document API changes</li>
+      </ul>
+    </td>
+  </tr>
+</table>
+
+### Code of Conduct
+
+We expect all contributors to adhere to our Code of Conduct. Please be respectful and constructive in all interactions.
 
 ---
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+<div align="center">
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+
+</div>
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+The MIT License is a permissive license that is short and to the point. It lets people do anything they want with your code as long as they provide attribution back to you and don't hold you liable.
 
 ---
 
 ## Acknowledgments
 
-- Flask and Flask extensions community
-- AWS SDK for Python (boto3) team
-- Bootstrap and SweetAlert2 for UI components
-- All contributors to the project
+AMIVault stands on the shoulders of giants. We'd like to thank:
+
+<table>
+  <tr>
+    <td width="50%">
+      <h3>Open Source Communities</h3>
+      <ul>
+        <li>Flask and Flask extensions community</li>
+        <li>AWS SDK for Python (boto3) team</li>
+        <li>Python Software Foundation</li>
+        <li>Open source security tools community</li>
+      </ul>
+    </td>
+    <td width="50%">
+      <h3>Frontend Technologies</h3>
+      <ul>
+        <li>Bootstrap team for responsive UI framework</li>
+        <li>SweetAlert2 for enhanced user interactions</li>
+        <li>Jinja2 template engine contributors</li>
+        <li>JavaScript community</li>
+      </ul>
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2">
+      <h3>Contributors & Supporters</h3>
+      <ul>
+        <li>All individual contributors to the project</li>
+        <li>Early adopters and testers who provided valuable feedback</li>
+        <li>Organizations that have supported the development</li>
+      </ul>
+    </td>
+  </tr>
+</table>
 
 ---
 
-**AMIVault** — Secure, Automated, and Extensible AWS AMI Backup Management.
+<div align="center">
 
-[Report Issues](https://github.com/s3csys/amivault/issues) | [Request Features](https://github.com/s3csys/amivault/issues)
+# AMIVault
+
+**Secure, Automated, and Extensible AWS AMI Backup Management**
+
+[Documentation](https://github.com/s3csys/amivault/wiki) | 
+[Report Issues](https://github.com/s3csys/amivault/issues) | 
+[Request Features](https://github.com/s3csys/amivault/issues) | 
+[Contribute](https://github.com/s3csys/amivault/blob/main/CONTRIBUTING.md)
+
+© 2023 S3C Systems. All rights reserved.
+
+</div>
