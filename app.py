@@ -165,7 +165,7 @@ app.config.update(
         'pool_recycle': 300,
     },
     SCHEDULER_API_ENABLED=True,
-    SCHEDULER_TIMEZONE=os.environ.get('SCHEDULER_TIMEZONE', 'UTC'),
+    # SCHEDULER_TIMEZONE=os.environ.get('SCHEDULER_TIMEZONE', 'UTC'),
     DEBUG=os.environ.get('FLASK_DEBUG', '0') == '1'
 )
 
@@ -218,19 +218,6 @@ def parse_cron_expression(cron_str):
 #     except Exception as e:
 #         logger.error(f"Error during initialization: {e}")
 
-# App configuration
-app.config.update(
-    SECRET_KEY=os.environ.get('SECRET_KEY', 'your-secret-key-change-in-production'),
-    SQLALCHEMY_DATABASE_URI=os.environ.get('DATABASE_URL', 'sqlite:///amivault.db'),
-    SQLALCHEMY_TRACK_MODIFICATIONS=False,
-    SQLALCHEMY_ENGINE_OPTIONS={
-        'pool_pre_ping': True,
-        'pool_recycle': 300,
-    },
-    SCHEDULER_API_ENABLED=True,
-    SCHEDULER_TIMEZONE='UTC',
-    DEBUG=os.environ.get('FLASK_DEBUG', '0') == '1'
-)
 
 # Initialize extensions
 #  db = SQLAlchemy(app)
@@ -1700,7 +1687,7 @@ def add_instance():
             # Schedule backup for this instance if scheduler is available
             try:
                 schedule_instance_backup(inst)
-                flash("Backup schedule created", "info")
+                flash("Backup schedule created", "success")
             except Exception as e:
                 logger.warning(f"Could not schedule backup for {instance_id}: {e}")
             
@@ -1816,7 +1803,80 @@ def delete_instance(instance_id):
         # Get backup count for confirmation
         backup_count = Backup.query.filter_by(instance_id=instance_id).count()
         
-        # Delete associated backups first (cascade should handle this, but being explicit)
+        # Check if this is a confirmation after the backup warning
+        confirm_delete = request.form.get('confirm_delete') == 'true'
+        
+        # If there are backups and this is not a confirmation, return JSON response
+        if backup_count > 0 and not confirm_delete and request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({
+                'has_backups': True,
+                'backup_count': backup_count,
+                'instance_id': instance_id,
+                'instance_name': instance_name
+            })
+        
+        # If there are backups, use bulk_delete_amis to properly clean up AWS resources
+        if backup_count > 0:
+            try:
+                # Call bulk_delete_amis internally to handle AWS resource deletion
+                logger.info(f"Deleting AWS resources for instance {instance_id} using bulk_delete_amis")
+                
+                # Create EC2 client for AWS operations
+                ec2_client = boto3.client(
+                    'ec2',
+                    region_name=instance.region,
+                    aws_access_key_id=instance.access_key,
+                    aws_secret_access_key=instance.secret_key
+                )
+                
+                # Get backups with AMI IDs
+                backups = Backup.query.filter_by(instance_id=instance_id).filter(
+                    Backup.ami_id.isnot(None)
+                ).all()
+                
+                deleted_amis = []
+                aws_errors = []
+                
+                for backup in backups:
+                    try:
+                        # Get AMI details before deletion
+                        ami_response = ec2_client.describe_images(ImageIds=[backup.ami_id])
+                        if ami_response['Images']:
+                            image = ami_response['Images'][0]
+                            
+                            # Deregister AMI
+                            ec2_client.deregister_image(ImageId=backup.ami_id)
+                            deleted_amis.append(backup.ami_id)
+                            logger.info(f"Deleted AMI {backup.ami_id} for instance {instance_id}")
+                            
+                            # Delete associated snapshots
+                            for mapping in image.get('BlockDeviceMappings', []):
+                                ebs = mapping.get('Ebs')
+                                if ebs and 'SnapshotId' in ebs:
+                                    try:
+                                        ec2_client.delete_snapshot(SnapshotId=ebs['SnapshotId'])
+                                        logger.info(f"Deleted snapshot {ebs['SnapshotId']} for AMI {backup.ami_id}")
+                                    except ClientError as snap_e:
+                                        if snap_e.response.get('Error', {}).get('Code') != 'InvalidSnapshot.NotFound':
+                                            logger.warning(f"Could not delete snapshot {ebs['SnapshotId']}: {snap_e}")
+                                            aws_errors.append(f"Error deleting snapshot {ebs['SnapshotId']}: {str(snap_e)}")
+
+                    except ClientError as e:
+                        error_code = e.response.get('Error', {}).get('Code', '')
+                        if error_code == 'InvalidAMIID.NotFound':
+                            # AMI already deleted, just remove from database
+                            deleted_amis.append(backup.ami_id)
+                        else:
+                            aws_errors.append(f"Error deleting AMI {backup.ami_id}: {str(e)}")
+                    except Exception as e:
+                        aws_errors.append(f"Error deleting AMI {backup.ami_id}: {str(e)}")
+                
+                if aws_errors:
+                    logger.warning(f"Encountered {len(aws_errors)} errors while deleting AWS resources for instance {instance_id}: {aws_errors}")
+            except Exception as e:
+                logger.error(f"Error deleting AWS resources for instance {instance_id}: {e}")
+        
+        # Delete associated backups from database (cascade should handle this, but being explicit)
         Backup.query.filter_by(instance_id=instance_id).delete()
         
         # Remove scheduled backup job
@@ -1830,11 +1890,25 @@ def delete_instance(instance_id):
         db.session.commit()
         
         logger.info(f"Instance {instance_id} deleted by {session['username']} (had {backup_count} backups)")
-        flash(f"Instance '{instance_name}' and {backup_count} associated backup records deleted successfully!", "success")
+        
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({
+                'success': True,
+                'message': f"Instance '{instance_name}' and {backup_count} associated backup records deleted successfully!"
+            })
+        else:
+            flash(f"Instance '{instance_name}' and {backup_count} associated backup records deleted successfully!", "success")
         
     except Exception as e:
         logger.error(f"Error deleting instance {instance_id}: {e}")
-        flash("An error occurred while deleting the instance", "danger")
+        
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({
+                'success': False,
+                'error': "An error occurred while deleting the instance"
+            }), 500
+        else:
+            flash("An error occurred while deleting the instance", "danger")
     
     return redirect(url_for('aws_instances'))
 
@@ -2214,21 +2288,21 @@ def bulk_tag_amis():
                 )
                 
                 for backup in backups:
-                    if Backup.snapshot_id:
+                    if backup.ami_id:
                         try:
                             ec2_client.create_tags(
-                                Resources=[Backup.snapshot_id],
+                                Resources=[backup.ami_id],
                                 Tags=[{'Key': tag_key, 'Value': tag_value}]
                             )
-                            tagged_amis.append(Backup.snapshot_id)
+                            tagged_amis.append(backup.ami_id)
                         except ClientError as e:
                             error_code = e.response.get('Error', {}).get('Code', '')
                             if error_code == 'InvalidAMIID.NotFound':
-                                errors.append(f"AMI {Backup.snapshot_id} not found")
+                                errors.append(f"AMI {backup.ami_id} not found")
                             else:
-                                errors.append(f"Failed to tag {Backup.snapshot_id}: {str(e)}")
+                                errors.append(f"Failed to tag {backup.ami_id}: {str(e)}")
                         except Exception as e:
-                            errors.append(f"Failed to tag {Backup.snapshot_id}: {str(e)}")
+                            errors.append(f"Failed to tag {backup.ami_id}: {str(e)}")
                             
             except Exception as e:
                 errors.append(f"Failed to connect to AWS for instance {inst_id}: {str(e)}")
@@ -2373,7 +2447,7 @@ def start_backup(instance_id):
         inst = Instance.query.filter_by(instance_id=instance_id, is_active=True).first()
         if not inst:
             flash(f"Instance {instance_id} not found or inactive", "danger")
-            return redirect(url_for('instances'))
+            return redirect(url_for('aws_instances'))
         
         # Get effective retention days
         global_config = BackupSettings.query.first()
@@ -2386,7 +2460,7 @@ def start_backup(instance_id):
         is_valid, validation_msg = inst.validate_aws_credentials()
         if not is_valid:
             flash(f"AWS validation failed: {validation_msg}", "danger")
-            return redirect(url_for('instances'))
+            return redirect(url_for('aws_instances'))
         
         # Create EC2 client
         ec2_client = boto3.client(
@@ -2400,7 +2474,7 @@ def start_backup(instance_id):
         response = ec2_client.describe_instances(InstanceIds=[instance_id])
         if not response.get('Reservations'):
             flash(f"Instance {instance_id} not found in AWS", "danger")
-            return redirect(url_for('instances'))
+            return redirect(url_for('aws_instances'))
         
         instance_info = response['Reservations'][0]['Instances'][0]
         instance_name = inst.instance_name  # Use stored name as fallback
@@ -2414,9 +2488,8 @@ def start_backup(instance_id):
         if not instance_name:
             instance_name = f"Instance-{instance_id}"
         
-        # Create AMI with timestamp
-        ist_zone = pytz.timezone('Asia/Kolkata')
-        timestamp_str = datetime.now(ist_zone).strftime("%Y_%m_%d_%I_%M_%p")
+        # Create AMI with timestamp - using UTC consistently
+        timestamp_str = datetime.now(UTC).strftime("%Y_%m_%d_%I_%M_%p")
         ami_name = f"{instance_name}_{timestamp_str}_manual"
         
         # Create pending backup record first
@@ -2427,8 +2500,8 @@ def start_backup(instance_id):
             timestamp=datetime.now(UTC),
             status='Pending',
             region=inst.region,
-            retention_days=retention_days,
-            backup_type='manual'
+            retention_days=retention_days
+            # Removed backup_type field as it doesn't exist in the model
         )
         db.session.add(backup)
         db.session.commit()
@@ -2458,7 +2531,7 @@ def start_backup(instance_id):
         
         # Update backup record to Success
         backup.status = 'Success'
-        Backup.snapshot_id = ami_id
+        backup.ami_id = ami_id  # Use backup.ami_id instead of Backup.snapshot_id
         db.session.commit()
         
         # Trigger cleanup of old AMIs for this instance
@@ -2492,7 +2565,7 @@ def start_backup(instance_id):
         
         flash(error_msg, "danger")
     
-    return redirect(url_for('instances'))
+    return redirect(url_for('aws_instances'))
 
 
 def cleanup_old_amis(ec2_client, instance_name, retention_days, instance_id=None):
@@ -2614,7 +2687,7 @@ def backup_instance(instance_id):
                 instance_name = f"Instance-{instance_id}"
             
             # Create AMI with timestamp
-            ist_zone = pytz.timezone('Asia/Kolkata')
+            ist_zone = pytz.timezone('UTC')
             timestamp_str = datetime.now(ist_zone).strftime("%Y_%m_%d_%I_%M_%p")
             ami_name = f"{instance_name}_{timestamp_str}_scheduled"
             
@@ -2797,16 +2870,15 @@ def api_amis():
         
         backups = Backup.query.filter(
             Backup.instance_id.in_(instance_ids),
-            Backup.snapshot_id.isnot(None)
+            Backup.ami_id.isnot(None)
         ).order_by(Backup.timestamp.desc()).all()
         
         return jsonify([{
-            'ami_id': Backup.snapshot_id,
+            'ami_id': backup.ami_id,
             'instance_name': backup.instance_name,
             'instance_id': backup.instance_id,
             'status': backup.status,
-            'timestamp': backup.formatted_timestamp,
-            'backup_type': backup.backup_type
+            'timestamp': backup.formatted_timestamp if hasattr(backup, 'formatted_timestamp') else backup.timestamp.isoformat()
         } for backup in backups])
         
     except Exception as e:
@@ -3069,7 +3141,7 @@ def delete_ami(ami_id):
                 # success_msg = f"AMI {ami_id} was already deleted from AWS. Database record cleaned up."
                 # if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
                     # return jsonify({'success': True, 'message': success_msg})
-                flash("success", "info")
+                flash("success", "success")
                 return redirect(url_for('dashboard'))
                 
             image = images_response['Images'][0]
@@ -3641,161 +3713,165 @@ def check_single_instance_internal(data):
 
 ############################################################ Notifications ############################################################
 
-def add_notification(message, category='info', persistent=False):
-    """Add notification to session with improved categorization"""
-    if 'notifications' not in session:
-        session['notifications'] = []
+# def add_notification(message, category='info', persistent=False):
+#     """Add notification to session with improved categorization"""
+#     if 'notifications' not in session:
+#         session['notifications'] = []
     
-    # Prevent duplicate notifications
-    existing_messages = [n.get('message') for n in session['notifications']]
-    if message not in existing_messages:
-        notification = {
-            'message': message,
-            'category': category,
-            'timestamp': datetime.now(UTC).isoformat(),
-            'persistent': persistent,
-            'id': secrets.token_hex(8)  # Unique ID for each notification
-        }
-        session['notifications'].append(notification)
-        session.modified = True
+#     # Prevent duplicate notifications
+#     existing_messages = [n.get('message') for n in session['notifications']]
+#     if message not in existing_messages:
+#         notification = {
+#             'message': message,
+#             'category': category,
+#             'timestamp': datetime.now(UTC).isoformat(),
+#             'persistent': persistent,
+#             'id': secrets.token_hex(8)  # Unique ID for each notification
+#         }
+#         session['notifications'].append(notification)
+#         session.modified = True
         
-        # Also use Flask's flash for immediate display
-        flash(message, category)
+#         # Also use Flask's flash for immediate display
+#         flash(message, category)
         
-        # Log notification for debugging
-        logger.info(f"Added notification [{category}]: {message}")
+#         # Log notification for debugging
+#         logger.info(f"Added notification [{category}]: {message}")
 
 
-def get_notifications():
-    """Retrieve all notifications from session"""
-    notifications = session.get('notifications', [])
+# def get_notifications():
+#     """Retrieve all notifications from session"""
+#     notifications = session.get('notifications', [])
     
-    # Clean up old notifications (older than 1 hour for non-persistent ones)
-    app_timezone = pytz.timezone(app.config['SCHEDULER_TIMEZONE'])
-    current_time = datetime.now(UTC).astimezone(app_timezone)
-    filtered_notifications = []
+#     # Clean up old notifications (older than 1 hour for non-persistent ones)
+#     current_time = datetime.now(UTC)  # Use UTC timezone directly
+#     filtered_notifications = []
     
-    for notification in notifications:
-        if notification.get('persistent', False):
-            filtered_notifications.append(notification)
-        else:
-            try:
-                notification_time = datetime.fromisoformat(notification.get('timestamp', ''))
-                if (current_time - notification_time).total_seconds() < 3600:  # 1 hour
-                    filtered_notifications.append(notification)
-            except (ValueError, TypeError):
-                # Keep notification if timestamp parsing fails
-                filtered_notifications.append(notification)
+#     for notification in notifications:
+#         if notification.get('persistent', False):
+#             filtered_notifications.append(notification)
+#         else:
+#             try:
+#                 # Parse the timestamp and ensure it has timezone info
+#                 notification_time = datetime.fromisoformat(notification.get('timestamp', ''))
+#                 # If the timestamp doesn't have timezone info, assume it's UTC
+#                 if notification_time.tzinfo is None:
+#                     notification_time = notification_time.replace(tzinfo=UTC)
+                    
+#                 if (current_time - notification_time).total_seconds() < 3600:  # 1 hour
+#                     filtered_notifications.append(notification)
+#             except (ValueError, TypeError):
+#                 # Keep notification if timestamp parsing fails
+#                 filtered_notifications.append(notification)
     
-    # Update session if notifications were cleaned up
-    if len(filtered_notifications) != len(notifications):
-        session['notifications'] = filtered_notifications
-        session.modified = True
+#     # Update session if notifications were cleaned up
+#     if len(filtered_notifications) != len(notifications):
+#         session['notifications'] = filtered_notifications
+#         session.modified = True
     
-    return filtered_notifications
+#     return filtered_notifications
 
 
-@app.route('/clear-notifications', methods=['POST'])
-def clear_notifications():
-    """Clear all or specific notifications"""
-    if 'username' not in session:
-        return jsonify({'success': False, 'error': 'Not authenticated'}), 401
+# @app.route('/clear-notifications', methods=['POST'])
+# def clear_notifications():
+#     """Clear all or specific notifications"""
+#     if 'username' not in session:
+#         return jsonify({'success': False, 'error': 'Not authenticated'}), 401
     
-    notification_id = request.form.get('notification_id') or request.json.get('notification_id')
+#     notification_id = request.form.get('notification_id') or request.json.get('notification_id')
     
-    if notification_id:
-        # Clear specific notification
-        notifications = session.get('notifications', [])
-        session['notifications'] = [n for n in notifications if n.get('id') != notification_id]
-        session.modified = True
-        logger.info(f"Cleared specific notification: {notification_id}")
+#     if notification_id:
+#         # Clear specific notification
+#         notifications = session.get('notifications', [])
+#         session['notifications'] = [n for n in notifications if n.get('id') != notification_id]
+#         session.modified = True
+#         logger.info(f"Cleared specific notification: {notification_id}")
         
-        if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-            return jsonify({'success': True, 'message': 'Notification cleared'})
-    else:
-        # Clear all notifications
-        session['notifications'] = []
-        session.modified = True
-        logger.info("Cleared all notifications")
+#         if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+#             return jsonify({'success': True, 'message': 'Notification cleared'})
+#     else:
+#         # Clear all notifications
+#         session['notifications'] = []
+#         session.modified = True
+#         logger.info("Cleared all notifications")
         
-        if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-            return jsonify({'success': True, 'message': 'All notifications cleared'})
+#         if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+#             return jsonify({'success': True, 'message': 'All notifications cleared'})
     
-    return redirect(request.referrer or url_for('dashboard'))
+#     return redirect(request.referrer or url_for('dashboard'))
 
 
-@app.route('/notifications/api', methods=['GET'])
-def notifications_api():
-    """API endpoint to get current notifications"""
-    if 'username' not in session:
-        return jsonify({'success': False, 'error': 'Not authenticated'}), 401
+# @app.route('/notifications/api', methods=['GET'])
+# def notifications_api():
+#     """API endpoint to get current notifications"""
+#     if 'username' not in session:
+#         return jsonify({'success': False, 'error': 'Not authenticated'}), 401
     
-    notifications = get_notifications()
+#     notifications = get_notifications()
     
-    return jsonify({
-        'success': True,
-        'notifications': notifications,
-        'count': len(notifications)
-    })
+#     return jsonify({
+#         'success': True,
+#         'notifications': notifications,
+#         'count': len(notifications)
+#     })
 
 
-@app.route('/mark-notification-read', methods=['POST'])
-def mark_notification_read():
-    """Mark notification as read"""
-    if 'username' not in session:
-        return jsonify({'success': False, 'error': 'Not authenticated'}), 401
+# @app.route('/mark-notification-read', methods=['POST'])
+# def mark_notification_read():
+#     """Mark notification as read"""
+#     if 'username' not in session:
+#         return jsonify({'success': False, 'error': 'Not authenticated'}), 401
     
-    notification_id = request.form.get('notification_id') or request.json.get('notification_id')
+#     notification_id = request.form.get('notification_id') or request.json.get('notification_id')
     
-    if not notification_id:
-        return jsonify({'success': False, 'error': 'Notification ID required'})
+#     if not notification_id:
+#         return jsonify({'success': False, 'error': 'Notification ID required'})
     
-    notifications = session.get('notifications', [])
-    for notification in notifications:
-        if notification.get('id') == notification_id:
-            notification['read'] = True
-            notification['read_at'] = datetime.now(UTC).isoformat()
-            break
+#     notifications = session.get('notifications', [])
+#     for notification in notifications:
+#         if notification.get('id') == notification_id:
+#             notification['read'] = True
+#             notification['read_at'] = datetime.now(UTC).isoformat()
+#             break
     
-    session['notifications'] = notifications
-    session.modified = True
+#     session['notifications'] = notifications
+#     session.modified = True
     
-    return jsonify({'success': True, 'message': 'Notification marked as read'})
+#     return jsonify({'success': True, 'message': 'Notification marked as read'})
 
 
-# Context processor to make notifications available in all templates
-@app.context_processor
-def inject_notifications():
-    """Inject notifications into all templates"""
-    return {
-        'notifications': get_notifications(),
-        'notification_count': len(get_notifications())
-    }
+# # Context processor to make notifications available in all templates
+# @app.context_processor
+# def inject_notifications():
+#     """Inject notifications into all templates"""
+#     return {
+#         'notifications': get_notifications(),
+#         'notification_count': len(get_notifications())
+#     }
 
 
-# Enhanced notification functions for specific use cases
-def notify_backup_success(instance_name, ami_id):
-    """Notify successful backup creation"""
-    message = f"Backup created successfully for {instance_name} (AMI: {ami_id})"
-    add_notification(message, 'success')
+# # Enhanced notification functions for specific use cases
+# def notify_backup_success(instance_name, ami_id):
+#     """Notify successful backup creation"""
+#     message = f"Backup created successfully for {instance_name} (AMI: {ami_id})"
+#     add_notification(message, 'success')
 
 
-def notify_backup_failure(instance_name, error_msg):
-    """Notify backup failure"""
-    message = f"Backup failed for {instance_name}: {error_msg}"
-    add_notification(message, 'danger', persistent=True)
+# def notify_backup_failure(instance_name, error_msg):
+#     """Notify backup failure"""
+#     message = f"Backup failed for {instance_name}: {error_msg}"
+#     add_notification(message, 'danger', persistent=True)
 
 
-def notify_instance_added(instance_name):
-    """Notify new instance registration"""
-    message = f"Instance '{instance_name}' added successfully"
-    add_notification(message, 'success')
+# def notify_instance_added(instance_name):
+#     """Notify new instance registration"""
+#     message = f"Instance '{instance_name}' added successfully"
+#     add_notification(message, 'success')
 
 
-def notify_cleanup_completed(count):
-    """Notify cleanup operation completion"""
-    message = f"Cleanup completed: {count} expired backups removed"
-    add_notification(message, 'info')
+# def notify_cleanup_completed(count):
+#     """Notify cleanup operation completion"""
+#     message = f"Cleanup completed: {count} expired backups removed"
+#     add_notification(message, 'info')
 
 ############################################################ Backup Settings ############################################################
 
@@ -4051,7 +4127,7 @@ def perform_backup(instance_id):
         )
         
         ami_id = response['ImageId']
-        Backup.snapshot_id = ami_id
+        backup.ami_id = ami_id
         backup.ami_name = ami_name
         backup.status = 'Success'
         backup.duration_seconds = int((datetime.now(UTC) - start_time).total_seconds())
@@ -4081,12 +4157,20 @@ def cleanup_old_backups(instance_id):
         if not instance:
             return
         
-        # Get expired backups
-        expired_backups = Backup.query.filter(
+        # Get backups for this instance
+        backups = Backup.query.filter(
             Backup.instance_id == instance_id,
-            Backup.status == 'Success',
-            Backup.cleanup_status != 'completed'
+            Backup.status == 'Success'
         ).all()
+        
+        # Get retention days from instance or global settings
+        retention_days = get_effective_setting(
+            instance.retention_days,
+            BackupSettings.query.first().retention_days if BackupSettings.query.first() else 7
+        )
+        
+        # Current time in UTC
+        now = datetime.now(UTC)
         
         ec2_client = boto3.client(
             'ec2',
@@ -4095,28 +4179,34 @@ def cleanup_old_backups(instance_id):
             aws_secret_access_key=instance.secret_key
         )
         
-        for backup in expired_backups:
-            if backup.is_expired and Backup.snapshot_id:
+        for backup in backups:
+            # Check if backup is older than retention period
+            if backup.timestamp and (now - backup.timestamp).days > retention_days and backup.ami_id:
                 try:
                     # Delete AMI and associated snapshots
-                    ec2_client.deregister_image(ImageId=Backup.snapshot_id)
+                    ec2_client.deregister_image(ImageId=backup.ami_id)
                     
                     # Get and delete associated snapshots
-                    images = ec2_client.describe_images(ImageIds=[Backup.snapshot_id])
-                    if images['Images']:
-                        for block_device in images['Images'][0].get('BlockDeviceMappings', []):
-                            if 'Ebs' in block_device and 'SnapshotId' in block_device['Ebs']:
-                                snapshot_id = block_device['Ebs']['SnapshotId']
-                                ec2_client.delete_snapshot(SnapshotId=snapshot_id)
+                    try:
+                        images = ec2_client.describe_images(ImageIds=[backup.ami_id])
+                        if images.get('Images'):
+                            for block_device in images['Images'][0].get('BlockDeviceMappings', []):
+                                if 'Ebs' in block_device and 'SnapshotId' in block_device['Ebs']:
+                                    snapshot_id = block_device['Ebs']['SnapshotId']
+                                    ec2_client.delete_snapshot(SnapshotId=snapshot_id)
+                    except ClientError:
+                        # AMI might already be deleted
+                        pass
                     
+                    # Update backup record
                     backup.cleanup_status = 'completed'
                     backup.cleanup_timestamp = datetime.now(UTC)
                     
-                    logger.info(f"Cleaned up expired backup {Backup.snapshot_id} for {instance_id}")
+                    logger.info(f"Cleaned up expired backup {backup.ami_id} for {instance_id}")
                     
                 except ClientError as e:
                     if e.response['Error']['Code'] != 'InvalidAMIID.NotFound':
-                        logger.error(f"Error cleaning up backup {Backup.snapshot_id}: {e}")
+                        logger.error(f"Error cleaning up backup {backup.ami_id}: {e}")
                         backup.cleanup_status = 'failed'
                     else:
                         # AMI already deleted, mark as completed
@@ -4160,9 +4250,10 @@ def schedules():
         scheduled_instances = []
         eventbridge_rules = []
         
-        # Get the configured timezone from app config
-        app_timezone = pytz.timezone(app.config['SCHEDULER_TIMEZONE'])
-        current_time = datetime.now(UTC).astimezone(app_timezone)
+        # Always use UTC timezone for scheduling
+        app_timezone = pytz.timezone('UTC')
+        # Create a timezone-aware datetime using pytz's localize method
+        current_time = app_timezone.localize(datetime.now().replace(tzinfo=None))
         
         # Get all active instances
         instances = Instance.query.filter_by(is_active=True).all()
@@ -4204,7 +4295,7 @@ def schedules():
                 rule_status = None
                 schedule = None
                 next_run = None
-                timezone_info = app.config['SCHEDULER_TIMEZONE']
+                timezone_info = 'UTC'  # Always use UTC for scheduling
                 
                 try:
                     # Try to get the backup rule
@@ -4355,7 +4446,7 @@ def calculate_next_run(schedule_expression, current_time):
                 
                 # Ensure we're working with a timezone-aware datetime
                 if current_time.tzinfo is None:
-                    app_timezone = pytz.timezone(app.config['SCHEDULER_TIMEZONE'])
+                    app_timezone = pytz.timezone('UTC')  # Always use UTC for scheduling
                     current_time = app_timezone.localize(current_time)
                 
                 next_run = current_time.replace(second=0, microsecond=0)
@@ -4424,8 +4515,9 @@ def time_until_filter(target_time):
         return None
     
     try:
-        app_timezone = pytz.timezone(app.config['SCHEDULER_TIMEZONE'])
-        now = datetime.now(UTC).astimezone(app_timezone)
+        app_timezone = pytz.timezone('UTC')  # Always use UTC for scheduling
+        # Create a timezone-aware datetime using pytz's localize method
+        now = app_timezone.localize(datetime.now().replace(tzinfo=None))
         if target_time <= now:
             return "Overdue"
         
@@ -4468,8 +4560,9 @@ def api_refresh_schedules():
     try:
         # Get fresh schedule data
         scheduled_instances = []
-        app_timezone = pytz.timezone(app.config['SCHEDULER_TIMEZONE'])
-        current_time = datetime.now(UTC).astimezone(app_timezone)
+        app_timezone = pytz.timezone('UTC')  # Always use UTC for scheduling
+        # Create a timezone-aware datetime using pytz's localize method
+        current_time = app_timezone.localize(datetime.now().replace(tzinfo=None))
         
         instances = Instance.query.filter_by(is_active=True).all()
         

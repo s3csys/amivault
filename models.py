@@ -156,6 +156,9 @@ class Backup(db.Model):
     region = db.Column(db.String(20), nullable=True)  # Added for region information
     tags = db.Column(db.JSON, nullable=True)
     duration_seconds = db.Column(db.Integer, nullable=True)
+    cleanup_status = db.Column(db.String(20), nullable=True)
+    cleanup_timestamp = db.Column(db.DateTime, nullable=True)
+    instance_name = db.Column(db.String(100), nullable=True)  # Added for instance name
 
     def __repr__(self):
         return f'<Backup {self.ami_id} for {self.instance_id}>'
