@@ -204,6 +204,306 @@ def parse_cron_expression(cron_str):
     except ValueError:
         raise ValueError(f"Invalid cron expression format: {cron_str}")
 
+def calculate_next_backup_time(backup_frequency):
+    """Calculate the next backup time based on backup frequency
+    
+    Args:
+        backup_frequency (str): Backup frequency in cron format or @interval format
+        
+    Returns:
+        datetime: The next backup time
+    """
+    from croniter import croniter
+    from datetime import datetime, timedelta
+    import pytz
+    
+    now = datetime.now(pytz.UTC)
+    
+    # Handle interval-based schedules (@12 for every 12 hours)
+    if backup_frequency.startswith('@'):
+        try:
+            interval_hours = int(backup_frequency[1:])
+            return now + timedelta(hours=interval_hours)
+        except ValueError:
+            logger.error(f"Invalid interval format: {backup_frequency}")
+            # Default to 24 hours if invalid
+            return now + timedelta(hours=24)
+    
+    # Handle cron-based schedules
+    try:
+        # Create a croniter instance
+        cron = croniter(backup_frequency, now)
+        # Get the next occurrence
+        next_time = cron.get_next(datetime)
+        return next_time
+    except Exception as e:
+        logger.error(f"Error calculating next backup time from cron expression '{backup_frequency}': {e}")
+        # Default to 24 hours if invalid
+        return now + timedelta(hours=24)
+
+def poll_ami_status(instance_id=None):
+    """Poll AWS for AMI status updates for instances marked for polling
+    
+    This function is designed to be scheduled to run periodically to check for AMI status
+    updates for instances that are using EventBridge but don't have an API Gateway endpoint
+    configured for callbacks.
+    
+    Args:
+        instance_id (str, optional): If provided, only poll for this specific instance
+    """
+    try:
+        # Get instances that need status polling
+        query = Instance.query.filter_by(is_active=True, needs_status_polling=True, scheduler_type='eventbridge')
+        
+        # If instance_id is provided, only poll for that specific instance
+        if instance_id:
+            query = query.filter_by(instance_id=instance_id)
+            
+        instances = query.all()
+        
+        if not instances:
+            logger.debug("No instances require AMI status polling")
+            return
+            
+        logger.info(f"Polling AMI status for {len(instances)} instances")
+        
+        for instance in instances:
+            try:
+                # Create boto3 session with instance credentials
+                boto3_session = boto3.Session(
+                    aws_access_key_id=instance.access_key,
+                    aws_secret_access_key=instance.secret_key,
+                    region_name=instance.region
+                )
+                
+                # Create EC2 client
+                ec2_client = boto3_session.client('ec2')
+                
+                # Get the most recent backup record for this instance
+                latest_backup = Backup.query.filter_by(instance_id=instance.instance_id).order_by(Backup.created_at.desc()).first()
+                
+                # Calculate when the next backup should have occurred
+                if latest_backup:
+                    # If we have a previous backup, calculate when the next one should occur
+                    last_backup_time = latest_backup.timestamp
+                    # Add a buffer time (10 minutes) to account for scheduling delays
+                    buffer_time = timedelta(minutes=10)
+                    
+                    # Calculate the next expected backup time based on the frequency
+                    from_time = last_backup_time - buffer_time
+                else:
+                    # If no previous backup, use a reasonable time window (24 hours)
+                    from_time = datetime.now(UTC) - timedelta(hours=24)
+                
+                # Get all AMIs created after the from_time
+                try:
+                    # Filter AMIs by the instance ID in the name or description
+                    response = ec2_client.describe_images(
+                        Owners=['self'],
+                        Filters=[
+                            {
+                                'Name': 'state',
+                                'Values': ['available', 'pending']
+                            },
+                            {
+                                'Name': 'creation-date',
+                                'Values': [from_time.strftime('%Y-%m-%d')+'*']
+                            }
+                        ]
+                    )
+                    
+                    # Filter images that match our instance ID pattern
+                    instance_amis = []
+                    for image in response.get('Images', []):
+                        # Check if this AMI was created for this instance
+                        # Look for instance ID in name, description, or tags
+                        name = image.get('Name', '')
+                        description = image.get('Description', '')
+                        tags = image.get('Tags', [])
+                        
+                        # Check if instance ID is in name or description
+                        if instance.instance_id in name or instance.instance_id in description:
+                            instance_amis.append(image)
+                            continue
+                            
+                        # Check if instance ID is in tags
+                        for tag in tags:
+                            if tag.get('Key') == 'InstanceId' and tag.get('Value') == instance.instance_id:
+                                instance_amis.append(image)
+                                break
+                    
+                    # Process any AMIs found
+                    for ami in instance_amis:
+                        ami_id = ami.get('ImageId')
+                        ami_name = ami.get('Name')
+                        ami_state = ami.get('State')
+                        creation_date_str = ami.get('CreationDate')
+                        
+                        # Parse the creation date
+                        try:
+                            # AWS returns ISO format timestamps
+                            creation_date = datetime.fromisoformat(creation_date_str.replace('Z', '+00:00'))
+                        except (ValueError, AttributeError):
+                            # If we can't parse the date, use current time
+                            creation_date = datetime.now(UTC)
+                        
+                        # Check if we already have a record for this AMI
+                        existing_backup = Backup.query.filter_by(instance_id=instance.instance_id, ami_id=ami_id).first()
+                        
+                        if existing_backup:
+                            # Update the status if needed
+                            if existing_backup.status != 'Success' and ami_state == 'available':
+                                existing_backup.status = 'Success'
+                                existing_backup.completed_at = datetime.now(UTC)
+                                db.session.commit()
+                                logger.info(f"Updated status to Success for AMI {ami_id} (instance {instance.instance_id})")
+                        else:
+                            # Create a new backup record
+                            new_backup = Backup(
+                                instance_id=instance.instance_id,
+                                ami_id=ami_id,
+                                ami_name=ami_name,
+                                status='Success' if ami_state == 'available' else 'Pending',
+                                timestamp=creation_date,
+                                created_at=datetime.now(UTC),
+                                completed_at=datetime.now(UTC) if ami_state == 'available' else None,
+                                retention_days=instance.retention_days,
+                                region=instance.region,
+                                instance_name=instance.instance_name
+                            )
+                            db.session.add(new_backup)
+                            db.session.commit()
+                            logger.info(f"Created new backup record for AMI {ami_id} (instance {instance.instance_id})")
+                    
+                    if not instance_amis:
+                        logger.debug(f"No new AMIs found for instance {instance.instance_id}")
+                        
+                except Exception as e:
+                    logger.error(f"Error querying AMIs for instance {instance.instance_id}: {e}")
+            
+            except Exception as e:
+                logger.error(f"Error polling AMI status for instance {instance.instance_id}: {e}")
+                continue
+    
+    except Exception as e:
+        logger.error(f"Error in poll_ami_status: {e}")
+
+# Schedule the AMI status polling job based on instance backup frequencies
+def schedule_ami_status_polling(run_immediate=False, instance_id=None):
+    """Schedule the AMI status polling job based on instance backup frequencies
+    
+    Args:
+        run_immediate (bool): If True, schedule a one-time job to run after a short delay
+                             to check newly created AMIs
+        instance_id (str): Optional instance ID to schedule polling specifically for this instance
+    """
+    job_id = "ami_status_polling"
+    if scheduler.get_job(job_id):
+        scheduler.remove_job(job_id)
+    
+    # Create a wrapper function that ensures app context is available
+    def poll_ami_status_with_context(specific_instance_id=None):
+        with app.app_context():
+            poll_ami_status(instance_id=specific_instance_id or instance_id)
+    
+    # Get instances that need polling (only EventBridge instances)
+    query = Instance.query.filter_by(
+        is_active=True, 
+        needs_status_polling=True, 
+        scheduler_type='eventbridge'
+    )
+    
+    # If instance_id is provided, only schedule for that specific instance
+    if instance_id:
+        query = query.filter_by(instance_id=instance_id)
+    
+    instances_needing_polling = query.all()
+    
+    if not instances_needing_polling:
+        logger.info("No EventBridge instances require AMI status polling, skipping scheduler setup")
+        return
+    
+    # Get global backup settings
+    global_settings = BackupSettings.query.first()
+    default_frequency = global_settings.backup_frequency if global_settings else "60"  # Default 60 minutes
+    
+    # Determine the polling interval based on the most frequent backup schedule
+    # This ensures we check often enough to catch all AMI status changes
+    min_interval_minutes = 60  # Default to 60 minutes if no instances need polling
+    
+    for instance in instances_needing_polling:
+        # Get the backup frequency for this instance
+        frequency = instance.backup_frequency
+        
+        # Convert frequency to minutes for comparison
+        interval_minutes = 60  # Default to 60 minutes
+        
+        if frequency.startswith('@'):
+            # Handle interval-based schedules (e.g., @12 for every 12 hours)
+            try:
+                hours = int(frequency[1:])
+                interval_minutes = hours * 60
+            except ValueError:
+                logger.warning(f"Invalid interval format for instance {instance.instance_id}: {frequency}")
+        else:
+            # For cron expressions, we'll use a reasonable default polling interval
+            # since it's hard to determine the exact interval from a cron expression
+            interval_minutes = 30
+        
+        # Update the minimum interval if this instance has a more frequent schedule
+        min_interval_minutes = min(min_interval_minutes, interval_minutes)
+        
+        # If run_immediate is requested for this specific instance, schedule a one-time job
+        # that runs after the instance's backup frequency plus a 10-second delay
+        if run_immediate and instance_id and instance.instance_id == instance_id:
+            immediate_job_id = f"immediate_ami_status_polling_{instance.instance_id}"
+            if not scheduler.get_job(immediate_job_id):
+                # Add 10 seconds to the instance's backup frequency
+                delay_seconds = 10  # 10 second delay after AMI creation
+                
+                # Create a partial function that includes the instance ID
+                def poll_specific_instance():
+                    poll_ami_status_with_context(specific_instance_id=instance.instance_id)
+                
+                scheduler.add_job(
+                    id=immediate_job_id,
+                    func=poll_specific_instance,
+                    trigger='date',
+                    run_date=datetime.now() + timedelta(seconds=delay_seconds),
+                    replace_existing=True
+                )
+                logger.info(f"Scheduled one-time AMI status polling job for instance {instance.instance_id} to run after {delay_seconds} seconds")
+    
+    # Ensure the polling interval is reasonable (not too frequent, not too infrequent)
+    # Minimum 5 minutes, maximum 60 minutes
+    polling_interval = max(5, min(min_interval_minutes // 2, 60))
+    
+    # Use the wrapper function with the calculated interval
+    scheduler.add_job(
+        id=job_id,
+        func=poll_ami_status_with_context,
+        trigger='interval',
+        minutes=polling_interval,
+        replace_existing=True
+    )
+    logger.info(f"Scheduled AMI status polling job to run every {polling_interval} minutes based on instance backup frequencies")
+    
+    # If run_immediate is requested but no specific instance_id was provided,
+    # schedule a general immediate polling job
+    if run_immediate and not instance_id and not scheduler.get_job("immediate_ami_status_polling"):
+        # Create a function for general polling (no specific instance)
+        def poll_all_instances():
+            poll_ami_status_with_context()
+            
+        scheduler.add_job(
+            id="immediate_ami_status_polling",
+            func=poll_all_instances,
+            trigger='date',
+            run_date=datetime.now() + timedelta(seconds=10),  # Run after 10 seconds
+            replace_existing=True
+        )
+        logger.info("Scheduled one-time AMI status polling job to run after 10 seconds")
+
 # # Initialize database and scheduler after app starts
 # with app.app_context():
 #     try:
@@ -636,6 +936,16 @@ def schedule_instance_backup(instance):
                             ]
                         )
                         logger.info(f"Configured EventBridge target for {instance.instance_id} using Lambda function")
+                        
+                        # Set needs_status_polling flag based on API endpoint availability
+                        if not api_endpoint:
+                            instance.needs_status_polling = True
+                            db.session.commit()
+                            logger.info(f"Set needs_status_polling=True for instance {instance.instance_id} due to missing API endpoint")
+                        else:
+                            instance.needs_status_polling = False
+                            db.session.commit()
+                            logger.info(f"Set needs_status_polling=False for instance {instance.instance_id} as API endpoint is configured")
                     except Exception as e:
                         logger.error(f"Failed to configure Lambda target for EventBridge rule: {e}")
                         raise ValueError(f"Failed to configure Lambda target: {e}")
@@ -3542,6 +3852,12 @@ def backup_instance(instance_id):
             
             logger.info(f"Scheduled backup completed: {ami_id} for instance {instance_id}")
             
+            # Schedule immediate AMI status polling to check the status of the newly created AMI
+            # Only for EventBridge instances that need polling
+            if inst.needs_status_polling and inst.scheduler_type == 'eventbridge':
+                schedule_ami_status_polling(run_immediate=True, instance_id=instance_id)
+                logger.info(f"Scheduled one-time AMI status polling job for newly created AMI {ami_id} to run after 10 seconds")
+            
             # Cleanup old AMIs
             cleanup_old_amis(ec2_client, instance_name, retention_days, instance_id)
             
@@ -4057,7 +4373,8 @@ def initialize_scheduler():
         """Initialize backup scheduler on first request"""
         try:
             schedule_all_instance_backups()
-            logger.info("✅ Backup scheduler initialized successfully")
+            schedule_ami_status_polling()
+            logger.info("✅ Backup scheduler and AMI status polling initialized successfully")
         except Exception as e:
             logger.error(f"Failed to initialize backup scheduler: {e}")
 
@@ -5310,6 +5627,10 @@ def schedule_all_instance_backups():
         
         logger.info(f"Successfully scheduled backups for {success_count} out of {len(active_instances)} instances")
         
+        # Schedule the AMI status polling job
+        schedule_ami_status_polling()
+        logger.info("Scheduled AMI status polling job")
+        
     except Exception as e:
         logger.error(f"Error in schedule_all_instance_backups: {e}")
         raise
@@ -5618,7 +5939,7 @@ def schedules():
                     )
                     
                     # List all rules with backup prefix
-                    rules_response = eventbridge_client.list_rules(NamePrefix='backup-')
+                    rules_response = eventbridge_client.list_rules(NamePrefix='AMIVault-Backup-')
                     
                     for rule in rules_response.get('Rules', []):
                         rule_detail = {
@@ -5802,6 +6123,7 @@ def api_refresh_schedules():
     try:
         # Get fresh schedule data
         scheduled_instances = []
+        eventbridge_rules = []
         app_timezone = pytz.timezone('UTC')  # Always use UTC for scheduling
         # Create a timezone-aware datetime using pytz's localize method
         current_time = app_timezone.localize(datetime.now().replace(tzinfo=None))
@@ -5814,19 +6136,107 @@ def api_refresh_schedules():
                 schedule = instance.backup_frequency
                 next_run = calculate_next_run(schedule, current_time)
                 
+                # Check for EventBridge rule for this instance
+                rule_status = None
+                try:
+                    # Create EventBridge client
+                    eventbridge_client = boto3.client(
+                        'events',
+                        region_name=instance.region,
+                        aws_access_key_id=instance.access_key,
+                        aws_secret_access_key=instance.secret_key
+                    )
+                    
+                    # Try to get the backup rule
+                    rule_name = f"AMIVault-Backup-{instance.instance_id}"
+                    rule_response = eventbridge_client.describe_rule(Name=rule_name)
+                    rule_status = {
+                        'exists': True,
+                        'state': rule_response.get('State', 'UNKNOWN'),
+                        'schedule': rule_response.get('ScheduleExpression', ''),
+                        'description': rule_response.get('Description', '')
+                    }
+                except Exception as e:
+                    logger.warning(f"Error checking EventBridge rule for {instance.instance_id}: {e}")
+                    rule_status = {
+                        'exists': False,
+                        'state': 'ERROR'
+                    }
+                
                 scheduled_instances.append({
                     'instance_id': instance.instance_id,
                     'instance_name': instance.instance_name,
                     'schedule': schedule,
                     'next_run': next_run.isoformat() if next_run else None,
-                    'next_run_human': time_until_filter(next_run) if next_run else None
+                    'next_run_human': time_until_filter(next_run) if next_run else None,
+                    'rule_status': rule_status
                 })
                 
             except Exception as e:
                 logger.error(f"Error processing instance {instance.instance_id}: {e}")
         
+        # Get all backup-related EventBridge rules across all instances
+        try:
+            # Group instances by region to minimize API calls
+            regions = {}
+            for instance in instances:
+                if instance.region not in regions:
+                    regions[instance.region] = []
+                regions[instance.region].append(instance)
+            
+            for region, region_instances in regions.items():
+                if not region_instances:
+                    continue
+                
+                # Use first instance's credentials for the region
+                instance = region_instances[0]
+                try:
+                    eventbridge_client = boto3.client(
+                        'events',
+                        region_name=region,
+                        aws_access_key_id=instance.access_key,
+                        aws_secret_access_key=instance.secret_key
+                    )
+                    
+                    # List all rules with backup prefix
+                    rules_response = eventbridge_client.list_rules(NamePrefix='backup-')
+                    
+                    for rule in rules_response.get('Rules', []):
+                        rule_detail = {
+                            'name': rule.get('Name', ''),
+                            'state': rule.get('State', 'UNKNOWN'),
+                            'schedule': rule.get('ScheduleExpression', ''),
+                            'description': rule.get('Description', ''),
+                            'region': region
+                        }
+                        
+                        # Get targets count
+                        try:
+                            targets_response = eventbridge_client.list_targets_by_rule(Rule=rule['Name'])
+                            rule_detail['targets'] = len(targets_response.get('Targets', []))
+                        except Exception:
+                            rule_detail['targets'] = 0
+                        
+                        # Calculate next run
+                        if rule_detail['schedule']:
+                            next_run = calculate_next_run(rule_detail['schedule'], current_time)
+                            rule_detail['next_run'] = next_run.isoformat() if next_run else None
+                            rule_detail['next_run_human'] = time_until_filter(next_run) if next_run else None
+                        else:
+                            rule_detail['next_run'] = None
+                            rule_detail['next_run_human'] = None
+                        
+                        eventbridge_rules.append(rule_detail)
+                        
+                except Exception as e:
+                    logger.error(f"Error listing EventBridge rules for region {region}: {e}")
+        
+        except Exception as e:
+            logger.error(f"Error processing EventBridge rules: {e}")
+        
         return jsonify({
             'scheduled_instances': scheduled_instances,
+            'eventbridge_rules': eventbridge_rules,
             'current_time': current_time.isoformat(),
             'refresh_time': current_time.strftime('%Y-%m-%d %H:%M:%S') + ' ' + current_time.tzinfo.tzname(current_time)
         })
@@ -5920,6 +6330,10 @@ def init_app():
             
             # Schedule backups for active instances
             schedule_all_instance_backups()
+            
+            # Schedule AMI status polling for instances that need it
+            schedule_ami_status_polling()
+            logger.info("Scheduled AMI status polling job")
             
         return True
     except Exception as e:

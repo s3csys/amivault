@@ -194,7 +194,7 @@
 {% if scheduled_instances %}
     <div class="schedules-grid">
         {% for instance in scheduled_instances %}
-        <div class="schedule-card">
+        <div class="schedule-card" data-instance-id="{{ instance.instance_id }}">
             <div class="schedule-header">
                 <h3 class="schedule-title">{{ instance.instance_name }}</h3>
                 <span class="status-badge
@@ -277,7 +277,7 @@
         </thead>
         <tbody>
             {% for rule in eventbridge_rules %}
-            <tr>
+            <tr data-rule-name="{{ rule.name }}">
                 <td>{{ rule.name }}</td>
                 <td>
                     <span class="status-badge {{ 'status-active' if rule.state == 'ENABLED' else 'status-disabled' }}">
@@ -289,7 +289,7 @@
                 <td>
                     {% if rule.next_run %}
                         {{ rule.next_run.strftime('%Y-%m-%d %H:%M:%S') }} {{ rule.next_run.tzinfo.tzname(rule.next_run) }}<br>
-                        <small style="color: #6b7280;">({{ rule.next_run | time_until }})</small>
+                        <small style="color: #6b7280;" class="rule-next-run">({{ rule.next_run | time_until }})</small>
                     {% else %}
                         N/A
                     {% endif %}
@@ -303,16 +303,75 @@
 {% endif %}
 
 <script>
-// Auto-refresh every 5 minutes
-setTimeout(function() {
-    location.reload();
-}, 300000);
-
-// Update countdown timers every minute
-setInterval(function() {
-    // This would update the "time until" displays
-    // For now, we'll just refresh the page every 5 minutes
-}, 60000);
+    // Function to fetch updated schedule data
+    function refreshScheduleData() {
+        fetch('/api/schedules/refresh')
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.json();
+            })
+            .then(data => {
+                // Update current time
+                const refreshTime = new Date(data.current_time);
+                document.querySelector('.current-time').textContent = 'Current Time: ' + data.refresh_time;
+                
+                // Update instance schedules
+                if (data.scheduled_instances) {
+                    data.scheduled_instances.forEach(instance => {
+                        // Find the instance card
+                        const instanceCard = document.querySelector(`[data-instance-id="${instance.instance_id}"]`);
+                        if (instanceCard) {
+                            // Update next run time
+                            const nextRunElement = instanceCard.querySelector('.next-run-highlight');
+                            if (nextRunElement && instance.next_run_human) {
+                                nextRunElement.textContent = 'In ' + instance.next_run_human;
+                            }
+                        }
+                    });
+                }
+                
+                // Update EventBridge rules table
+                if (data.eventbridge_rules && data.eventbridge_rules.length > 0) {
+                    const rulesTableBody = document.querySelector('.rules-table tbody');
+                    if (rulesTableBody) {
+                        // Update existing rows
+                        data.eventbridge_rules.forEach(rule => {
+                            const rows = rulesTableBody.querySelectorAll('tr');
+                            for (let i = 0; i < rows.length; i++) {
+                                const row = rows[i];
+                                const nameCell = row.querySelector('td:first-child');
+                                if (nameCell && nameCell.textContent.trim() === rule.name) {
+                                    // Update next run time
+                                     const nextRunCell = row.querySelector('td:nth-child(5)');
+                                     if (nextRunCell && rule.next_run_human) {
+                                         const timeDisplay = nextRunCell.querySelector('.rule-next-run');
+                                         if (timeDisplay) {
+                                             timeDisplay.textContent = '(' + rule.next_run_human + ')';
+                                         }
+                                     }
+                                    break;
+                                }
+                            }
+                        });
+                    }
+                }
+                
+                console.log('Schedule data refreshed at ' + new Date().toLocaleString());
+            })
+            .catch(error => {
+                console.error('Error refreshing schedule data:', error);
+            });
+    }
+    
+    // Auto-refresh every 5 minutes
+    setTimeout(function() {
+        location.reload();
+    }, 300000);
+    
+    // Refresh schedule data every minute
+    setInterval(refreshScheduleData, 60000);
 </script>
 
 {% endblock %}

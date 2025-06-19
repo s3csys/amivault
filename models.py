@@ -64,6 +64,7 @@ class Instance(db.Model):
     updated_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
     scheduler_type = db.Column(db.String(20), default='python', nullable=False)  # 'python' or 'eventbridge'
+    needs_status_polling = db.Column(db.Boolean, default=False, nullable=False)  # Flag to indicate if this instance needs AMI status polling
     
     # Relationship to backups
     backups = db.relationship('Backup', backref='instance_ref', lazy=True, cascade='all, delete-orphan')
