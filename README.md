@@ -255,6 +255,12 @@ LOG_FORMAT=%(asctime)s - %(name)s - %(levelname)s - %(message)s
 LOG_DATE_FORMAT=%Y-%m-%d %H:%M:%S
 LOG_MAX_BYTES=10485760
 LOG_BACKUP_COUNT=5
+
+# AWS EventBridge Configuration
+# These variables are automatically configured when EventBridge scheduler is selected
+# No manual configuration required as AMIVault will handle this automatically
+# BACKUP_LAMBDA_ARN=
+# API_GATEWAY_ENDPOINT=
 ```
 
 > **Note:** For production environments, use a secure random key generator for the `SECRET_KEY`.
@@ -265,7 +271,7 @@ LOG_BACKUP_COUNT=5
 
 ```bash
 # Create database tables
-python -c "from app import app, db; app.app_context().push(); db.create_all()"
+python helper.py --recreate-db
 ```
 </details>
 
@@ -369,13 +375,56 @@ AMIVault supports two scheduler types:
 
 1. **Python Scheduler (Default):**
    - Runs within the application process
-   - Suitable for single-server deployments
    - Configure with `scheduler_type='python'` in instance settings
 
 2. **AWS EventBridge:**
    - Uses AWS EventBridge for scheduling
-   - Better for distributed deployments
    - Configure with `scheduler_type='eventbridge'` in instance settings
+   - Lambda function is automatically deployed when EventBridge is selected
+   - No manual configuration required
+
+### AWS EventBridge Integration
+
+AMIVault can integrate with AWS EventBridge for more reliable scheduling:
+
+- **Cross-Account Support:** Schedule backups across multiple AWS accounts
+- **High Availability:** EventBridge provides enterprise-grade reliability
+- **Monitoring:** Built-in CloudWatch metrics and alarms
+
+#### Fully Automated Setup
+
+AMIVault now features a fully automated EventBridge integration process:
+
+1. **Automatic Lambda Function Deployment:**
+   - When you switch an instance's scheduler type to "EventBridge", AMIVault automatically:
+     - Creates the necessary IAM role with appropriate permissions
+     - Deploys a Lambda function for AMI creation
+     - Configures permissions for EventBridge to invoke the function
+     - Updates the `.env` file with the Lambda ARN
+
+2. **No Manual Configuration Required:**
+   - Simply select "EventBridge" as the scheduler type when adding or editing an instance
+   - The application handles all the AWS resource creation and configuration
+   - EventBridge rules are automatically created with the Lambda function as the target
+
+3. **Automatic Callback Integration:**
+   - The Lambda function automatically reports back to AMIVault when AMIs are created
+   - Backup records are updated in the database without manual intervention
+
+#### Key Components
+
+1. **lambda_function.py:**
+   - Automatically deployed to AWS Lambda when EventBridge scheduler is selected
+   - Receives events from EventBridge with instance ID information
+   - Creates AMI backups of the specified EC2 instance
+   - Tags the AMI with relevant metadata
+   - Sends a callback to the AMIVault application with the backup results
+
+2. **lambda_callback.py:**
+   - Flask Blueprint that handles callbacks from the Lambda function
+   - Exposes the `/api/backup-callback` endpoint to receive backup status
+   - Updates the AMIVault database with information about created AMIs
+   - Maintains synchronization between AWS resources and the AMIVault database
 
 ### Backup Frequency
 
@@ -838,6 +887,6 @@ AMIVault stands on the shoulders of giants. We'd like to thank:
 [Request Features](https://github.com/s3csys/amivault/issues) | 
 [Contribute](https://github.com/s3csys/amivault/blob/main/CONTRIBUTING.md)
 
-© 2023 S3C Systems. All rights reserved.
+© 2023 S3CSYS Systems. All rights reserved.
 
 </div>

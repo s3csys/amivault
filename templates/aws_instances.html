@@ -283,6 +283,13 @@
         </div>
         <label>Retention Days</label>
         <input type="number" name="retention_days" min="1" value="7" required>
+        
+        <label>Scheduler Type</label>
+        <select name="scheduler_type" required>
+          <option value="python">Python</option>
+          <option value="eventbridge">EventBridge</option>
+        </select>
+        
         <button type="submit">Add Instance</button>
       </form>
     </div>
@@ -303,6 +310,7 @@
               <th>Region</th>
               <th>Backup Frequency</th>
               <th>Retention Days</th>
+              <th>Scheduler Type</th>
               <th>Update</th>
               <th>Manual Backup</th>
               <th>Delete</th>
@@ -357,6 +365,12 @@
                   </div>
                 </td>
                 <td><input type="number" name="retention_days" value="{{ inst.retention_days or 7 }}" min="1" required></td>
+                <td>
+                  <select name="scheduler_type" required>
+                    <option value="python" {% if inst.scheduler_type == 'python' %}selected{% endif %}>Python</option>
+                    <option value="eventbridge" {% if inst.scheduler_type == 'eventbridge' %}selected{% endif %}>EventBridge</option>
+                  </select>
+                </td>
                 <td><button type="submit">Update</button></td>
               </form>
                 <td>
@@ -380,6 +394,7 @@
   </div>
   {% endif %}
 </div>
+
 
 <!-- JavaScript for the page -->
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
@@ -775,3 +790,141 @@ document.addEventListener('DOMContentLoaded', function() {
 }
 </style>
 {% endblock %}
+
+<script>
+// Function to validate cron expressions for AWS EventBridge
+function validateCronExpression(cronExpression) {
+  if (!cronExpression || typeof cronExpression !== 'string') {
+    return false;
+  }
+  
+  // Additional validation for AWS EventBridge requirements
+  const parts = cronExpression.trim().split(/\s+/);
+  if (parts.length !== 5) {
+    return false;
+  }
+  
+  // Basic validation for each part
+  const minutes = parts[0];
+  const hours = parts[1];
+  const dayOfMonth = parts[2];
+  const month = parts[3];
+  const dayOfWeek = parts[4];
+  
+  // Check if minutes is valid (0-59)
+  if (minutes !== '*' && !/^(\d+|\d+-\d+|\*/\d+|\d+(,\d+)*)$/.test(minutes)) {
+    return false;
+  }
+  
+  // Check if hours is valid (0-23)
+  if (hours !== '*' && !/^(\d+|\d+-\d+|\*/\d+|\d+(,\d+)*)$/.test(hours)) {
+    return false;
+  }
+  
+  // Check if day of month is valid (1-31 or * or ?)
+  if (dayOfMonth !== '*' && dayOfMonth !== '?' && !/^(\d+|\d+-\d+|\*/\d+|\d+(,\d+)*)$/.test(dayOfMonth)) {
+    return false;
+  }
+  
+  // Check if month is valid (1-12 or * or named months)
+  if (month !== '*' && !/^(\d+|\d+-\d+|\*/\d+|\d+(,\d+)*|JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)$/i.test(month)) {
+    return false;
+  }
+  
+  // Check if day of week is valid (0-7 or * or ? or named days)
+  if (dayOfWeek !== '*' && dayOfWeek !== '?' && !/^(\d+|\d+-\d+|\*/\d+|\d+(,\d+)*|SUN|MON|TUE|WED|THU|FRI|SAT)$/i.test(dayOfWeek)) {
+    return false;
+  }
+  
+  // In AWS EventBridge, you can't specify both day-of-month and day-of-week
+  // If both are specified with values other than ? or *, one must be set to ?
+  if (dayOfMonth !== '*' && dayOfMonth !== '?' && 
+      dayOfWeek !== '*' && dayOfWeek !== '?') {
+    return false;
+  }
+  
+  // If both are *, one should be set to ? for AWS EventBridge compatibility
+  // This will be handled server-side in convert_to_eventbridge_format
+  
+  return true;
+}
+
+// Function to handle scheduler type change
+function handleSchedulerTypeChange(selectElement) {
+  const form = selectElement.closest('form');
+  const instanceId = form.action.split('/').pop();
+  const backupFrequencySelect = form.querySelector('select[name="backup_frequency"]');
+  const customBackupFrequency = form.querySelector('input[name="custom_backup_frequency"]');
+  
+  // Get the current frequency value
+  let currentFrequency = backupFrequencySelect.value;
+  if (currentFrequency === 'custom' && customBackupFrequency && customBackupFrequency.value) {
+    currentFrequency = customBackupFrequency.value;
+  }
+  
+  if (selectElement.value === 'eventbridge' && selectElement.dataset.previous === 'python') {
+    // Show popup to confirm cron schedule for EventBridge
+    let cronSchedule = prompt(
+      'Enter cron schedule for EventBridge configuration:\n\n' +
+      'Current schedule: ' + currentFrequency + '\n\n' +
+      'Format: minutes hours day-of-month month day-of-week\n' +
+      'AWS EventBridge Rules:\n' +
+      '- Use ? in either day-of-month OR day-of-week when specifying the other\n' +
+      '- Minutes: 0-59, Hours: 0-23, Day-of-month: 1-31 or ?, Month: 1-12, Day-of-week: 0-7 or ?\n' +
+      'Examples:\n' +
+      '0 2 * * ? (Daily at 2 AM)\n' +
+      '0 12 ? * MON-FRI (Weekdays at noon)\n' +
+      '0 0 1 * ? (1st day of month at midnight)',
+      currentFrequency
+    );
+    
+    if (cronSchedule) {
+      // Validate the cron expression
+      if (!validateCronExpression(cronSchedule)) {
+        alert('Invalid cron expression format for AWS EventBridge.\n\nPlease remember:\n- Use ? in either day-of-month OR day-of-week when specifying the other\n- Format: minutes hours day-of-month month day-of-week');
+        // If validation fails, revert to previous selection
+        selectElement.value = 'python';
+        return false;
+      }
+      
+      // Add hidden input field with the cron schedule
+      let hiddenInput = form.querySelector('input[name="cron_schedule"]');
+      if (!hiddenInput) {
+        hiddenInput = document.createElement('input');
+        hiddenInput.type = 'hidden';
+        hiddenInput.name = 'cron_schedule';
+        form.appendChild(hiddenInput);
+      }
+      hiddenInput.value = cronSchedule;
+    } else {
+      // If user cancels, revert to previous selection
+      selectElement.value = 'python';
+      return false;
+    }
+  } else if (selectElement.value === 'python' && selectElement.dataset.previous === 'eventbridge') {
+    // Remove the hidden cron_schedule input if switching back to Python
+    const hiddenInput = form.querySelector('input[name="cron_schedule"]');
+    if (hiddenInput) {
+      form.removeChild(hiddenInput);
+    }
+  }
+  
+  // Update the previous value
+  selectElement.dataset.previous = selectElement.value;
+  return true;
+}
+
+// Initialize scheduler type selects
+document.addEventListener('DOMContentLoaded', function() {
+  // Initialize scheduler type selects
+  document.querySelectorAll('select[name="scheduler_type"]').forEach(function(select) {
+    // Store initial value
+    select.dataset.previous = select.value;
+    
+    // Add change event listener
+    select.addEventListener('change', function() {
+      handleSchedulerTypeChange(this);
+    });
+  });
+});
+</script>

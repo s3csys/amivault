@@ -7,6 +7,7 @@ from flask_apscheduler import APScheduler
 from io import StringIO
 from botocore.exceptions import ClientError, NoCredentialsError
 from models import db, User, Instance, BackupSettings, Backup, AWSCredential
+from lambda_callback import lambda_callback
 
 # Monkeypatch dateutil and pytz to fix deprecation warnings
 import dateutil.tz.tz
@@ -173,6 +174,9 @@ app.config.update(
 db.init_app(app)
 scheduler = APScheduler()
 scheduler.init_app(app)
+
+# Register blueprints
+app.register_blueprint(lambda_callback)
 
 def parse_cron_expression(cron_str):
     """Parse a cron expression into kwargs for APScheduler"""
@@ -495,6 +499,7 @@ def schedule_instance_backup(instance):
         job_id = f"backup_{instance.instance_id}"
         if scheduler.get_job(job_id):
             scheduler.remove_job(job_id)
+            logger.info(f"Removed job {job_id}")            
 
         # Schedule the backup based on scheduler_type
         if instance.scheduler_type == 'python':
@@ -522,6 +527,151 @@ def schedule_instance_backup(instance):
                     **cron_kwargs
                 )
             logger.info(f"Scheduled Python backup job for instance {instance.instance_id}")
+        elif instance.scheduler_type == 'eventbridge':
+            # Schedule with AWS EventBridge
+            try:
+                # Create boto3 session with instance credentials
+                boto3_session = boto3.Session(
+                    aws_access_key_id=instance.access_key,
+                    aws_secret_access_key=instance.secret_key,
+                    region_name=instance.region
+                )
+                
+                # Create EventBridge client
+                events_client = boto3_session.client('events')
+                
+                # Create or update rule
+                rule_name = f"AMIVault-Backup-{instance.instance_id}"
+                
+                # Convert cron expression to EventBridge format using utility function
+                try:
+                    aws_cron = convert_to_eventbridge_format(instance.backup_frequency)
+                    # Log the cron expression for debugging
+                    logger.info(f"EventBridge expression for {instance.instance_id}: {aws_cron}")
+                except ValueError as e:
+                    error_msg = f"Error converting cron expression for {instance.instance_id}: {e}"
+                    logger.error(error_msg)
+                    raise ValueError(error_msg)
+                
+                # Create or update the rule
+                try:
+                    rule_response = events_client.put_rule(
+                        Name=rule_name,
+                        ScheduleExpression=aws_cron,
+                        State='ENABLED',
+                        Description=f"AMIVault backup schedule for {instance.instance_id}"
+                    )
+                    rule_arn = rule_response.get('RuleArn')
+                    logger.info(f"Created/updated EventBridge rule: {rule_name} with ARN: {rule_arn}")
+                except Exception as e:
+                    error_msg = f"Failed to create EventBridge rule for {instance.instance_id}: {e}"
+                    logger.error(error_msg)
+                    raise ValueError(error_msg)
+                
+                # Configure the target for the EventBridge rule
+                # First check if we need to deploy a Lambda function
+                lambda_arn = os.environ.get('BACKUP_LAMBDA_ARN', '')
+                api_endpoint = os.environ.get('API_GATEWAY_ENDPOINT', '')
+                
+                # If no Lambda ARN is set, try to deploy one automatically
+                if not lambda_arn and not api_endpoint:
+                    try:
+                        # Create Lambda function if it doesn't exist
+                        lambda_arn = deploy_lambda_function(instance)
+                        logger.info(f"Automatically deployed Lambda function with ARN: {lambda_arn}")
+                    except Exception as e:
+                        logger.error(f"Failed to automatically deploy Lambda function: {e}")
+                        # Continue with fallback options
+                
+                if not lambda_arn and not api_endpoint:
+                    # Create a default EC2 target that will create an AMI
+                    # This is a fallback if no Lambda or API Gateway is configured
+                    target_id = f"AMIVault-Target-{instance.instance_id}"
+                    
+                    # Create EC2 client to use for the target
+                    ec2_client = boto3_session.client('ec2')
+                    
+                    # Create a role for EventBridge to assume (or use an existing one)
+                    # This is a simplified example - in production, you would create a proper IAM role
+                    # with permissions to create AMIs
+                    
+                    # For now, we'll use the EC2 instance itself as the target
+                    try:
+                        events_client.put_targets(
+                            Rule=rule_name,
+                            Targets=[
+                                {
+                                    'Id': target_id,
+                                    'Arn': f"arn:aws:ec2:{instance.region}:{boto3_session.client('sts').get_caller_identity()['Account']}:instance/{instance.instance_id}",
+                                    'Input': json.dumps({
+                                        'instance_id': instance.instance_id,
+                                        'action': 'create-image',
+                                        'name': f"AMIVault-{instance.instance_id}-{datetime.now().strftime('%Y%m%d-%H%M%S')}",
+                                        'description': f"Automated backup created by AMIVault"
+                                    })
+                                }
+                            ]
+                        )
+                        logger.info(f"Configured EventBridge target for {instance.instance_id} using EC2 instance as target")
+                    except Exception as e:
+                        logger.error(f"Failed to configure EC2 target for EventBridge rule: {e}")
+                        logger.warning("No API Gateway endpoint or Lambda ARN configured for EventBridge target. Please set one of these environment variables.")
+                        # We'll continue without a target for now, but log a warning
+                elif lambda_arn:
+                    # Use Lambda function as target
+                    target_id = f"AMIVault-Target-{instance.instance_id}"
+                    try:
+                        events_client.put_targets(
+                            Rule=rule_name,
+                            Targets=[
+                                {
+                                    'Id': target_id,
+                                    'Arn': lambda_arn,
+                                    'Input': json.dumps({
+                                        'instance_id': instance.instance_id,
+                                        'action': 'backup',
+                                        'endpoint': api_endpoint if api_endpoint else None
+                                    })
+                                }
+                            ]
+                        )
+                        logger.info(f"Configured EventBridge target for {instance.instance_id} using Lambda function")
+                    except Exception as e:
+                        logger.error(f"Failed to configure Lambda target for EventBridge rule: {e}")
+                        raise ValueError(f"Failed to configure Lambda target: {e}")
+                elif api_endpoint:
+                    # Use API Gateway as target if it's an ARN
+                    if not api_endpoint.startswith('http'):
+                        # It's an ARN, use it directly
+                        target_id = f"AMIVault-Target-{instance.instance_id}"
+                        try:
+                            events_client.put_targets(
+                                Rule=rule_name,
+                                Targets=[
+                                    {
+                                        'Id': target_id,
+                                        'Arn': api_endpoint,
+                                        'Input': json.dumps({
+                                            'instance_id': instance.instance_id,
+                                            'action': 'backup'
+                                        })
+                                    }
+                                ]
+                            )
+                            logger.info(f"Configured EventBridge target for {instance.instance_id} using API Gateway ARN")
+                        except Exception as e:
+                            logger.error(f"Failed to configure API Gateway target for EventBridge rule: {e}")
+                            raise ValueError(f"Failed to configure API Gateway target: {e}")
+                    else:
+                        # It's a URL, we need to create an API destination
+                        logger.warning(f"API Gateway endpoint is a URL, not an ARN. EventBridge requires an ARN for targets.")
+                        logger.warning(f"Please set the BACKUP_LAMBDA_ARN environment variable to use a Lambda function as target.")
+                        # We'll continue without a target for now, but log a warning
+                
+                logger.info(f"Scheduled EventBridge backup job for instance {instance.instance_id}")
+            except Exception as e:
+                logger.error(f"Failed to schedule EventBridge backup for {instance.instance_id}: {e}")
+                raise
 
     except Exception as e:
         logger.error(f"Failed to schedule backup for instance {instance.instance_id}: {e}")
@@ -541,17 +691,595 @@ def schedule_instance_backup(instance):
 #         'day_of_week': parts[4]
 #     }
 
-def reschedule_instance_backup(instance):
-    """Reschedule backup job for an instance"""
-    return schedule_instance_backup(instance)
-
-def remove_instance_backup_schedule(instance_id):
-    """Remove backup schedule for an instance"""
+def deploy_lambda_function(instance):
+    """Deploy Lambda function for EventBridge target if it doesn't exist
+    
+    Args:
+        instance: The instance object with AWS credentials
+        
+    Returns:
+        str: ARN of the Lambda function
+    """
     try:
-        job_id = f'backup-{instance_id}'
-        scheduler.remove_job(job_id)
-        logger.info(f"Removed backup schedule for instance {instance_id}")
-        return True
+        # Create boto3 session with instance credentials
+        boto3_session = boto3.Session(
+            aws_access_key_id=instance.access_key,
+            aws_secret_access_key=instance.secret_key,
+            region_name=instance.region
+        )
+        
+        # Check if BACKUP_LAMBDA_ARN is already set
+        lambda_arn = os.environ.get('BACKUP_LAMBDA_ARN', '')
+        if lambda_arn:
+            logger.info(f"Using existing Lambda ARN: {lambda_arn}")
+            return lambda_arn
+            
+        # Create Lambda client
+        lambda_client = boto3_session.client('lambda')
+        
+        # Check if the Lambda function already exists
+        function_name = 'amivault-backup'
+        try:
+            response = lambda_client.get_function(FunctionName=function_name)
+            lambda_arn = response['Configuration']['FunctionArn']
+            logger.info(f"Found existing Lambda function: {lambda_arn}")
+            
+            # Update the .env file with the Lambda ARN
+            update_env_file('BACKUP_LAMBDA_ARN', lambda_arn)
+            
+            return lambda_arn
+        except lambda_client.exceptions.ResourceNotFoundException:
+            logger.info(f"Lambda function {function_name} not found, creating it")
+        
+        # Create IAM role for Lambda function
+        iam_client = boto3_session.client('iam')
+        role_name = 'AMIVault-Lambda-Role'
+        
+        # Check if role exists
+        try:
+            role_response = iam_client.get_role(RoleName=role_name)
+            role_arn = role_response['Role']['Arn']
+            logger.info(f"Using existing IAM role: {role_arn}")
+        except iam_client.exceptions.NoSuchEntityException:
+            # Create the role
+            logger.info(f"Creating IAM role: {role_name}")
+            assume_role_policy = json.dumps({
+                "Version": "2012-10-17",
+                "Statement": [{
+                    "Effect": "Allow",
+                    "Principal": {"Service": "lambda.amazonaws.com"},
+                    "Action": "sts:AssumeRole"
+                }]
+            })
+            
+            role_response = iam_client.create_role(
+                RoleName=role_name,
+                AssumeRolePolicyDocument=assume_role_policy,
+                Description="Role for AMIVault Lambda function"
+            )
+            role_arn = role_response['Role']['Arn']
+            
+            # Attach policies
+            policy_document = json.dumps({
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": [
+                            "ec2:DescribeInstances",
+                            "ec2:CreateImage",
+                            "ec2:CreateTags",
+                            "ec2:DescribeImages"
+                        ],
+                        "Resource": "*"
+                    },
+                    {
+                        "Effect": "Allow",
+                        "Action": [
+                            "logs:CreateLogGroup",
+                            "logs:CreateLogStream",
+                            "logs:PutLogEvents"
+                        ],
+                        "Resource": "arn:aws:logs:*:*:*"
+                    }
+                ]
+            })
+            
+            policy_name = "AMIVault-Lambda-Policy"
+            iam_client.put_role_policy(
+                RoleName=role_name,
+                PolicyName=policy_name,
+                PolicyDocument=policy_document
+            )
+            
+            # Wait for role to propagate
+            import time
+            time.sleep(10)
+        
+        # Check if lambda_function.py exists, if not create it
+        lambda_code_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'lambda_function.py')
+        lambda_callback_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'lambda_callback.py')
+        
+        # Create lambda_function.py if it doesn't exist
+        if not os.path.exists(lambda_code_path):
+            logger.info(f"Creating lambda_function.py file")
+            lambda_code = '''
+import json
+import boto3
+import os
+import logging
+from datetime import datetime
+
+# Configure logging
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+def lambda_handler(event, context):
+    """
+    AWS Lambda function to create AMI backups for EC2 instances
+    
+    Expected event format:
+    {
+        "instance_id": "i-1234567890abcdef0",
+        "action": "backup",
+        "endpoint": "https://your-api-endpoint/api/backup-callback" (optional)
+    }
+    """
+    logger.info(f"Received event: {json.dumps(event)}")
+    
+    try:
+        # Extract parameters from the event
+        instance_id = event.get('instance_id')
+        action = event.get('action', 'backup')
+        endpoint = event.get('endpoint')
+        
+        if not instance_id:
+            logger.error("No instance_id provided in the event")
+            return {
+                'statusCode': 400,
+                'body': json.dumps({'error': 'No instance_id provided'})
+            }
+        
+        # Get the instance region
+        ec2_client = boto3.client('ec2')
+        response = ec2_client.describe_instances(InstanceIds=[instance_id])
+        
+        if not response.get('Reservations') or not response['Reservations'][0].get('Instances'):
+            logger.error(f"Instance {instance_id} not found")
+            return {
+                'statusCode': 404,
+                'body': json.dumps({'error': f"Instance {instance_id} not found"})
+            }
+        
+        instance = response['Reservations'][0]['Instances'][0]
+        region = instance['Placement']['AvailabilityZone'][:-1]  # Remove the AZ letter to get the region
+        
+        # Get instance name from tags
+        instance_name = instance_id
+        for tag in instance.get('Tags', []):
+            if tag['Key'] == 'Name':
+                instance_name = tag['Value']
+                break
+        
+        # Create AMI
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        ami_name = f"AMIVault-{instance_name}-{timestamp}"
+        
+        ec2_client = boto3.client('ec2', region_name=region)
+        ami_response = ec2_client.create_image(
+            InstanceId=instance_id,
+            Name=ami_name,
+            Description=f"Automated backup created by AMIVault Lambda function at {timestamp}",
+            NoReboot=True
+        )
+        
+        ami_id = ami_response['ImageId']
+        logger.info(f"Created AMI {ami_id} for instance {instance_id}")
+        
+        # Tag the AMI
+        ec2_client.create_tags(
+            Resources=[ami_id],
+            Tags=[
+                {'Key': 'CreatedBy', 'Value': 'AMIVault-Lambda'},
+                {'Key': 'InstanceId', 'Value': instance_id},
+                {'Key': 'InstanceName', 'Value': instance_name},
+                {'Key': 'BackupType', 'Value': 'scheduled'}
+            ]
+        )
+        
+        # Call back to the API endpoint if provided
+        if endpoint:
+            try:
+                import urllib3
+                http = urllib3.PoolManager()
+                
+                callback_data = {
+                    'instance_id': instance_id,
+                    'ami_id': ami_id,
+                    'ami_name': ami_name,
+                    'status': 'success',
+                    'timestamp': timestamp
+                }
+                
+                response = http.request(
+                    'POST',
+                    endpoint,
+                    body=json.dumps(callback_data).encode('utf-8'),
+                    headers={'Content-Type': 'application/json'}
+                )
+                
+                logger.info(f"Callback to {endpoint} returned status {response.status}")
+            except Exception as e:
+                logger.error(f"Error calling back to endpoint {endpoint}: {str(e)}")
+        
+        return {
+            'statusCode': 200,
+            'body': json.dumps({
+                'success': True,
+                'ami_id': ami_id,
+                'ami_name': ami_name,
+                'instance_id': instance_id,
+                'instance_name': instance_name
+            })
+        }
+        
+    except Exception as e:
+        logger.error(f"Error creating AMI backup: {str(e)}")
+        return {
+            'statusCode': 500,
+            'body': json.dumps({'error': str(e)})
+        }
+'''
+            with open(lambda_code_path, 'w') as file:
+                file.write(lambda_code)
+            logger.info(f"Created lambda_function.py file")
+        
+        # Create lambda_callback.py if it doesn't exist
+        if not os.path.exists(lambda_callback_path):
+            logger.info(f"Creating lambda_callback.py file")
+            callback_code = '''
+from flask import Blueprint, request, jsonify
+from models import db, Backup, Instance
+from datetime import datetime, UTC
+import logging
+
+# Configure logging
+logger = logging.getLogger(__name__)
+
+# Create a Blueprint for the Lambda callback routes
+lambda_callback = Blueprint('lambda_callback', __name__)
+
+@lambda_callback.route('/api/backup-callback', methods=['POST'])
+def backup_callback():
+    """
+    Endpoint to receive callbacks from the Lambda function after AMI creation
+    
+    Expected JSON payload:
+    {
+        "instance_id": "i-1234567890abcdef0",
+        "ami_id": "ami-1234567890abcdef0",
+        "ami_name": "AMIVault-instance-name-20230101-123456",
+        "status": "success",
+        "timestamp": "20230101-123456"
+    }
+    """
+    try:
+        # Get the JSON data from the request
+        data = request.get_json()
+        
+        if not data:
+            logger.error("No JSON data received in callback")
+            return jsonify({'error': 'No data received'}), 400
+        
+        # Extract data from the payload
+        instance_id = data.get('instance_id')
+        ami_id = data.get('ami_id')
+        ami_name = data.get('ami_name')
+        status = data.get('status', 'unknown')
+        timestamp_str = data.get('timestamp')
+        
+        # Validate required fields
+        if not all([instance_id, ami_id, ami_name]):
+            logger.error(f"Missing required fields in callback data: {data}")
+            return jsonify({'error': 'Missing required fields'}), 400
+        
+        # Get the instance from the database
+        instance = Instance.query.filter_by(instance_id=instance_id).first()
+        if not instance:
+            logger.warning(f"Instance {instance_id} not found in database for callback")
+            return jsonify({'error': 'Instance not found'}), 404
+        
+        # Parse timestamp or use current time
+        try:
+            if timestamp_str:
+                timestamp = datetime.strptime(timestamp_str, "%Y%m%d-%H%M%S").replace(tzinfo=UTC)
+            else:
+                timestamp = datetime.now(UTC)
+        except ValueError:
+            logger.warning(f"Invalid timestamp format: {timestamp_str}, using current time")
+            timestamp = datetime.now(UTC)
+        
+        # Create or update backup record
+        existing_backup = Backup.query.filter_by(instance_id=instance_id, ami_id=ami_id).first()
+        
+        if existing_backup:
+            # Update existing backup
+            existing_backup.status = 'Success' if status == 'success' else 'Failed'
+            existing_backup.ami_name = ami_name
+            existing_backup.timestamp = timestamp
+            db.session.commit()
+            logger.info(f"Updated existing backup record for AMI {ami_id}")
+        else:
+            # Create new backup record
+            backup = Backup(
+                instance_id=instance_id,
+                ami_id=ami_id,
+                ami_name=ami_name,
+                status='Success' if status == 'success' else 'Failed',
+                timestamp=timestamp,
+                retention_days=instance.retention_days
+            )
+            db.session.add(backup)
+            db.session.commit()
+            logger.info(f"Created new backup record for AMI {ami_id}")
+        
+        return jsonify({
+            'success': True,
+            'message': f"Backup record {'updated' if existing_backup else 'created'} for AMI {ami_id}"
+        })
+        
+    except Exception as e:
+        logger.error(f"Error processing Lambda callback: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+'''
+            with open(lambda_callback_path, 'w') as file:
+                file.write(callback_code)
+            logger.info(f"Created lambda_callback.py file")
+            
+            # Check if the blueprint is already registered in app.py
+            # This is a simplified check, in a real implementation you might want to parse the file
+            try:
+                with open(__file__, 'r') as app_file:
+                    app_content = app_file.read()
+                    if 'from lambda_callback import lambda_callback' not in app_content:
+                        logger.info("Lambda callback import not found in app.py")
+                        logger.info("Add 'from lambda_callback import lambda_callback' to your imports")
+                    
+                    if 'app.register_blueprint(lambda_callback)' not in app_content:
+                        logger.info("Lambda callback blueprint not registered in app.py")
+                        logger.info("Add 'app.register_blueprint(lambda_callback)' after app initialization")
+                    
+                    # Both import and registration are present
+                    if 'from lambda_callback import lambda_callback' in app_content and 'app.register_blueprint(lambda_callback)' in app_content:
+                        logger.info("Lambda callback blueprint is already properly registered in app.py")
+            except Exception as e:
+                logger.error(f"Error checking app.py for blueprint registration: {e}")
+        
+        # Read the Lambda function code
+        with open(lambda_code_path, 'r') as file:
+            lambda_code = file.read()
+        
+        # Create a zip file in memory
+        import io
+        import zipfile
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            zip_file.writestr('lambda_function.py', lambda_code)
+        
+        zip_buffer.seek(0)
+        zip_bytes = zip_buffer.read()
+        
+        # Create the Lambda function
+        response = lambda_client.create_function(
+            FunctionName=function_name,
+            Runtime='python3.9',
+            Role=role_arn,
+            Handler='lambda_function.lambda_handler',
+            Code={
+                'ZipFile': zip_bytes
+            },
+            Description='AMIVault backup function for creating EC2 AMIs',
+            Timeout=300,
+            MemorySize=256,
+            Publish=True
+        )
+        
+        lambda_arn = response['FunctionArn']
+        logger.info(f"Created Lambda function: {lambda_arn}")
+        
+        # Update the .env file with the Lambda ARN
+        update_env_file('BACKUP_LAMBDA_ARN', lambda_arn)
+        
+        # Add permission for EventBridge to invoke the Lambda function
+        lambda_client.add_permission(
+            FunctionName=function_name,
+            StatementId='AllowEventBridgeInvoke',
+            Action='lambda:InvokeFunction',
+            Principal='events.amazonaws.com'
+        )
+        
+        return lambda_arn
+    except Exception as e:
+        logger.error(f"Failed to deploy Lambda function: {e}")
+        raise
+
+def update_env_file(key, value):
+    """Update a key-value pair in the .env file
+    
+    Args:
+        key: The environment variable key
+        value: The value to set
+    """
+    try:
+        env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
+        
+        # Read the current .env file
+        with open(env_path, 'r') as file:
+            lines = file.readlines()
+        
+        # Check if the key already exists
+        key_exists = False
+        for i, line in enumerate(lines):
+            if line.startswith(f"{key}="):
+                lines[i] = f"{key}={value}\n"
+                key_exists = True
+                break
+        
+        # If the key doesn't exist, add it
+        if not key_exists:
+            lines.append(f"\n{key}={value}\n")
+        
+        # Write the updated content back to the .env file
+        with open(env_path, 'w') as file:
+            file.writelines(lines)
+        
+        # Update the environment variable in the current process
+        os.environ[key] = value
+        
+        logger.info(f"Updated .env file with {key}={value}")
+    except Exception as e:
+        logger.error(f"Failed to update .env file: {e}")
+
+def reschedule_instance_backup(instance, old_scheduler_type=None):
+    """Reschedule backup job for an instance
+    
+    Args:
+        instance: The instance object
+        old_scheduler_type: The previous scheduler type if it was changed
+        
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        # If scheduler type changed, we need to remove the old schedule first
+        if old_scheduler_type and old_scheduler_type != instance.scheduler_type:
+            logger.info(f"Scheduler type changed from {old_scheduler_type} to {instance.scheduler_type} for {instance.instance_id}")
+            
+            # If changing to EventBridge, ensure Lambda function is deployed
+            if instance.scheduler_type == 'eventbridge':
+                try:
+                    # Check if Lambda ARN is already set
+                    lambda_arn = os.environ.get('BACKUP_LAMBDA_ARN', '')
+                    api_endpoint = os.environ.get('API_GATEWAY_ENDPOINT', '')
+                    
+                    # If no Lambda ARN or API endpoint is set, deploy Lambda function
+                    if not lambda_arn and not api_endpoint:
+                        logger.info(f"Deploying Lambda function for EventBridge scheduler for {instance.instance_id}")
+                        try:
+                            lambda_arn = deploy_lambda_function(instance)
+                            logger.info(f"Successfully deployed Lambda function with ARN: {lambda_arn}")
+                        except Exception as lambda_error:
+                            logger.error(f"Failed to deploy Lambda function for {instance.instance_id}: {lambda_error}")
+                            # Continue with scheduling, it will use fallback options
+                except Exception as e:
+                    logger.error(f"Error checking/deploying Lambda function for {instance.instance_id}: {e}")
+            
+            try:
+                remove_instance_backup_schedule(instance.instance_id, old_scheduler_type)
+                logger.info(f"Removed {old_scheduler_type} backup schedule for instance {instance.instance_id}")
+            except Exception as e:
+                # If the error is ResourceNotFoundException, we can ignore it and continue
+                if 'ResourceNotFoundException' in str(e):
+                    logger.warning(f"Rule not found when removing {old_scheduler_type} schedule for {instance.instance_id}. Continuing with new schedule.")
+                else:
+                    # For other errors, log but continue with scheduling
+                    logger.error(f"Error removing {old_scheduler_type} schedule for {instance.instance_id}: {e}")
+        
+        # Schedule with the new scheduler type
+        try:
+            schedule_instance_backup(instance)
+            return True
+        except ValueError as e:
+            # Handle specific validation errors
+            logger.error(f"Validation error when scheduling backup for {instance.instance_id}: {e}")
+            # If this was a scheduler type change and it failed, try to revert to the old scheduler type
+            if old_scheduler_type and old_scheduler_type != instance.scheduler_type:
+                logger.warning(f"Attempting to revert to previous scheduler type {old_scheduler_type} for {instance.instance_id}")
+                instance.scheduler_type = old_scheduler_type
+                db.session.commit()
+                try:
+                    schedule_instance_backup(instance)
+                    logger.info(f"Successfully reverted to {old_scheduler_type} scheduler for {instance.instance_id}")
+                    return False
+                except Exception as revert_error:
+                    logger.error(f"Failed to revert to previous scheduler type for {instance.instance_id}: {revert_error}")
+            raise
+    except Exception as e:
+        logger.error(f"Error rescheduling backup for {instance.instance_id}: {e}")
+        logger.warning(f"Could not reschedule backup for {instance.instance_id}: {e}")
+        raise
+
+def remove_instance_backup_schedule(instance_id, scheduler_type='python'):
+    """Remove backup schedule for an instance based on scheduler type"""
+    try:
+        if scheduler_type == 'python':
+            # Remove from APScheduler
+            job_id = f'backup_{instance_id}'  # Fixed job_id format to match schedule_instance_backup
+            if scheduler.get_job(job_id):
+                scheduler.remove_job(job_id)
+                logger.info(f"Removed Python backup schedule for instance {instance_id}")
+            return True
+        elif scheduler_type == 'eventbridge':
+            # Remove from EventBridge
+            # First, get the instance to access its AWS credentials
+            with app.app_context():
+                instance = Instance.query.filter_by(instance_id=instance_id).first()
+                if not instance:
+                    logger.warning(f"Instance {instance_id} not found when removing EventBridge schedule")
+                    return False
+                
+                # Create boto3 session with instance credentials
+                boto3_session = boto3.Session(
+                    aws_access_key_id=instance.access_key,
+                    aws_secret_access_key=instance.secret_key,
+                    region_name=instance.region
+                )
+                
+                # Create EventBridge client
+                events_client = boto3_session.client('events')
+                
+                # Remove targets first
+                rule_name = f"backup-{instance_id}"  # Fixed to match the rule_name in schedule_instance_backup
+                target_id = f"AMIVault-Target-{instance_id}"  # This should also be checked for consistency
+                
+                try:
+                    # Try to remove targets first (required before deleting the rule)
+                    try:
+                        events_client.remove_targets(
+                            Rule=rule_name,
+                            Ids=[target_id]
+                        )
+                    except Exception as e:
+                        # If the rule doesn't exist, we can skip removing targets
+                        if 'ResourceNotFoundException' in str(e):
+                            logger.warning(f"Rule {rule_name} not found when removing targets for {instance_id}")
+                        else:
+                            # For other errors, log and re-raise
+                            logger.error(f"Error removing EventBridge targets for {instance_id}: {e}")
+                            raise
+                    
+                    # Then try to delete the rule
+                    try:
+                        events_client.delete_rule(
+                            Name=rule_name
+                        )
+                    except Exception as e:
+                        # If the rule doesn't exist, that's fine
+                        if 'ResourceNotFoundException' in str(e):
+                            logger.warning(f"Rule {rule_name} not found when deleting for {instance_id}")
+                        else:
+                            # For other errors, log and re-raise
+                            logger.error(f"Error deleting EventBridge rule for {instance_id}: {e}")
+                            raise
+                    
+                    logger.info(f"Removed EventBridge backup schedule for instance {instance_id}")
+                    return True
+                except Exception as e:
+                    logger.error(f"Error removing EventBridge schedule for {instance_id}: {e}")
+                    raise
+        else:
+            logger.warning(f"Unknown scheduler type '{scheduler_type}' for instance {instance_id}")
+            return False
     except Exception as e:
         logger.error(f"Error removing backup schedule for instance {instance_id}: {e}")
         raise
@@ -563,13 +1291,218 @@ def get_effective_setting(instance_value, global_value):
     return instance_value if instance_value not in [None, '', 0] else global_value
 
 
-def validate_cron_expression(cron_str):
-    """Validate cron expression format"""
+def validate_cron_expression(cron_str, raise_exceptions=False):
+    """Validate cron expression format for both standard cron and AWS EventBridge compatibility
+    
+    This function validates a standard 5-part cron expression and checks for AWS EventBridge
+    compatibility requirements. AWS EventBridge has specific rules for cron expressions,
+    particularly regarding the day-of-month and day-of-week fields.
+    
+    Validation rules:
+    1. Must have exactly 5 parts (minutes hours day-of-month month day-of-week)
+    2. Each part must be within valid ranges:
+       - Minutes: 0-59
+       - Hours: 0-23
+       - Day-of-month: 1-31 or * or ?
+       - Month: 1-12 or * or named months (JAN-DEC)
+       - Day-of-week: 0-7 or * or ? or named days (SUN-SAT), where 0 and 7 both represent Sunday
+    3. AWS EventBridge specific rules:
+       - If both day-of-month and day-of-week are specified (not * or ?), one must be set to ?
+       - Both day-of-month and day-of-week cannot be ? at the same time
+    
+    Examples of valid expressions:
+    - "0 2 * * *" - Daily at 2 AM
+    - "0 12 ? * MON-FRI" - Weekdays at noon
+    - "0 0 1 * ?" - 1st day of month at midnight
+    
+    Examples of invalid expressions:
+    - "* * * *" - Too few parts
+    - "* * ? * ?" - Both day-of-month and day-of-week are ?
+    - "* * 1 * 1" - Both day-of-month and day-of-week are specified without ?
+    
+    Args:
+        cron_str: A string containing a standard 5-part cron expression
+        raise_exceptions: If True, raises exceptions with detailed error messages instead of returning False
+        
+    Returns:
+        Boolean indicating if the cron expression is valid
+        
+    Raises:
+        ValueError: If raise_exceptions is True and validation fails, with a specific error message
+    """
     if not cron_str or not isinstance(cron_str, str):
+        if raise_exceptions:
+            raise ValueError("Cron expression must be a non-empty string")
         return False
     
+    # First check if it has 5 parts (standard cron format)
     parts = cron_str.strip().split()
-    return len(parts) == 5
+    if len(parts) != 5:
+        if raise_exceptions:
+            raise ValueError(f"Cron expression must have exactly 5 parts, got {len(parts)}: {cron_str}")
+        return False
+    
+    # Basic validation for cron expression format
+    # Minutes: 0-59 or */n or n-m or n,m,...
+    # Hours: 0-23 or */n or n-m or n,m,...
+    # Day of month: 1-31 or * or ? or */n or n-m or n,m,...
+    # Month: 1-12 or * or */n or n-m or n,m,...
+    # Day of week: 0-7 or * or ? or */n or n-m or n,m,... (0 or 7=Sunday)
+    try:
+        minutes, hours, day_of_month, month, day_of_week = parts
+        
+        # Check minutes (0-59)
+        if minutes != '*' and not all(0 <= int(m) <= 59 for m in minutes.replace('*/','').replace('-',',').split(',') if m.isdigit()):
+            if raise_exceptions:
+                raise ValueError(f"Invalid minutes field '{minutes}': must be between 0-59, *, or contain valid ranges/lists/steps")
+            return False
+            
+        # Check hours (0-23)
+        if hours != '*' and not all(0 <= int(h) <= 23 for h in hours.replace('*/','').replace('-',',').split(',') if h.isdigit()):
+            if raise_exceptions:
+                raise ValueError(f"Invalid hours field '{hours}': must be between 0-23, *, or contain valid ranges/lists/steps")
+            return False
+            
+        # Check day of month (1-31 or ?)
+        if day_of_month != '*' and day_of_month != '?' and not all(1 <= int(d) <= 31 for d in day_of_month.replace('*/','').replace('-',',').split(',') if d.isdigit()):
+            if raise_exceptions:
+                raise ValueError(f"Invalid day-of-month field '{day_of_month}': must be between 1-31, *, ?, or contain valid ranges/lists/steps")
+            return False
+            
+        # Check month (1-12)
+        if month != '*' and not all(1 <= int(m) <= 12 for m in month.replace('*/','').replace('-',',').split(',') if m.isdigit()):
+            if raise_exceptions:
+                raise ValueError(f"Invalid month field '{month}': must be between 1-12, *, or contain valid ranges/lists/steps")
+            return False
+            
+        # Check day of week (0-7, where both 0 and 7 represent Sunday, or ?)
+        if day_of_week != '*' and day_of_week != '?' and not all(0 <= int(d) <= 7 for d in day_of_week.replace('*/','').replace('-',',').split(',') if d.isdigit()):
+            if raise_exceptions:
+                raise ValueError(f"Invalid day-of-week field '{day_of_week}': must be between 0-7, *, ?, or contain valid ranges/lists/steps")
+            return False
+        
+        # AWS EventBridge specific validation for day-of-month and day-of-week fields
+        # Rule 1: If both fields are specified (not * or ?), one must be set to ?
+        if (day_of_month != '*' and day_of_month != '?' and 
+            day_of_week != '*' and day_of_week != '?'):
+            if raise_exceptions:
+                raise ValueError(f"AWS EventBridge requires that if both day-of-month '{day_of_month}' and day-of-week '{day_of_week}' are specified, one must be set to '?'")
+            return False
+            
+        # Rule 2: Both fields cannot be set to ? at the same time
+        if day_of_month == '?' and day_of_week == '?':
+            if raise_exceptions:
+                raise ValueError("AWS EventBridge does not allow both day-of-month and day-of-week to be '?' at the same time")
+            return False
+            
+        return True
+    except (ValueError, IndexError) as e:
+        if raise_exceptions:
+            if isinstance(e, ValueError) and str(e):
+                # Re-raise the specific ValueError we created
+                raise
+            # Otherwise, it's an unexpected error
+            raise ValueError(f"Invalid cron expression format: {cron_str}")
+        return False
+
+
+def convert_to_eventbridge_format(frequency):
+    """Convert standard cron or interval expressions to AWS EventBridge format
+    
+    AWS EventBridge has specific requirements for cron expressions:
+    1. Format: cron(minutes hours day-of-month month day-of-week year)
+       - The year field is required (usually set to *)
+    2. Day-of-week uses 1-7 (1=Monday, 7=Sunday) instead of 0-6
+    3. Day-of-month and day-of-week fields have special rules:
+       - If one field is specified (not * or ?), the other must be set to ?
+       - Both fields cannot be ? at the same time
+       - If both fields are *, one should be set to ? (we set day-of-week to ?)
+    
+    Examples:
+        - "0 2 * * *" -> "cron(0 2 * * ? *)" (Daily at 2 AM)
+        - "0 12 ? * MON-FRI" -> "cron(0 12 ? * MON-FRI *)" (Weekdays at noon)
+        - "0 0 1 * ?" -> "cron(0 0 1 * ? *)" (1st day of month at midnight)
+        - "@12" -> "rate(12 hours)" (Every 12 hours)
+    
+    Args:
+        frequency: A string containing either a standard cron expression or an interval (@hours)
+        
+    Returns:
+        A string in AWS EventBridge format (either cron() or rate())
+        
+    Raises:
+        ValueError: If the frequency format is invalid, with a detailed error message
+    """
+    # Handle interval-based schedules (e.g., @12)
+    if frequency.startswith('@'):
+        try:
+            interval_hours = int(frequency[1:])
+            # Use rate expression for intervals
+            return f"rate({interval_hours} hours)"
+        except ValueError:
+            raise ValueError(f"Invalid interval value: {frequency}. Must be a number after @.")
+    else:
+        # Handle cron expressions
+        cron_parts = frequency.split()
+        if len(cron_parts) == 5:  # Standard cron format
+            # AWS EventBridge requires cron expressions in the format: cron(minutes hours day-of-month month day-of-week year)
+            # The year field is required for AWS EventBridge
+            minutes, hours, day_of_month, month, day_of_week = cron_parts
+            
+            # AWS EventBridge uses 1-7 for day-of-week (1=Monday, 7=Sunday)
+            # Standard cron uses 0-6 (0=Sunday, 6=Saturday)
+            # Convert if needed - handle all cases where 0 might appear
+            if day_of_week.isdigit() and int(day_of_week) == 0:
+                day_of_week = '7'  # Convert Sunday from 0 to 7
+            elif '0' in day_of_week:
+                # Handle comma-separated list that includes 0
+                if ',' in day_of_week:
+                    days = day_of_week.split(',')
+                    days = ['7' if d == '0' else d for d in days]
+                    day_of_week = ','.join(days)
+                # Handle range that includes 0
+                elif '-' in day_of_week:
+                    if day_of_week.startswith('0-'):
+                        day_of_week = '7' + day_of_week[1:]
+                    elif day_of_week.endswith('-0'):
+                        day_of_week = day_of_week[:-1] + '7'
+                    elif '-0-' in day_of_week:
+                        day_of_week = day_of_week.replace('-0-', '-7-')
+            
+            # In AWS EventBridge, you can't specify both day-of-month and day-of-week with specific values
+            # If both are specified with values other than *, one must be set to ?
+            # See: https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-cron-expressions.html
+            
+            # Handle AWS EventBridge specific requirements for day-of-month and day-of-week fields
+            if day_of_month != '*' and day_of_week != '*' and day_of_week != '?' and day_of_month != '?':
+                # If both are specified with non-wildcard values, set day-of-week to ?
+                day_of_week = '?'
+            elif day_of_week == '*' and day_of_month != '?':
+                # If day-of-week is * and day-of-month is not ?, set day-of-week to ? to ensure compatibility
+                # AWS requires either day-of-month or day-of-week to be '?' if the other is specified or '*'
+                day_of_week = '?'
+            elif day_of_month == '*' and day_of_week == '*':
+                # If both are *, set day-of-week to ? as per AWS EventBridge requirements
+                day_of_week = '?'
+            
+            # AWS EventBridge cron format is: cron(minutes hours day-of-month month day-of-week year)
+            # The year field is required for AWS EventBridge
+            aws_cron = f"cron({minutes} {hours} {day_of_month} {month} {day_of_week} *)"
+            
+            # Validate the final cron expression
+            if not aws_cron.startswith("cron(") or not aws_cron.endswith(")"):
+                raise ValueError(f"Invalid EventBridge cron expression format: {aws_cron}")
+            
+            # Additional validation for AWS EventBridge cron expressions with detailed error messages
+            try:
+                validate_cron_expression(f"{minutes} {hours} {day_of_month} {month} {day_of_week}", raise_exceptions=True)
+            except ValueError as e:
+                raise ValueError(f"Invalid AWS EventBridge cron expression: {str(e)}. Generated expression: {aws_cron}")
+                
+            return aws_cron
+        else:
+            raise ValueError(f"Invalid cron expression: {frequency}. Must have 5 parts.")
+
 
 
 def validate_backup_frequency(frequency):
@@ -591,8 +1524,13 @@ def validate_backup_frequency(frequency):
         pass
     
     # Try parsing as cron expression
-    if validate_cron_expression(frequency):
+    try:
+        # Attempt to validate the cron expression with detailed error messages
+        validate_cron_expression(frequency, raise_exceptions=True)
         return True, f"Cron: {frequency}"
+    except ValueError as e:
+        # Return the specific error message for better user feedback
+        return False, f"Invalid cron expression: {str(e)}"
     
     return False, "Invalid frequency format. Use minutes (e.g., 60) or cron (e.g., '0 2 * * *')"
 
@@ -1675,7 +2613,8 @@ def add_instance():
                 secret_key=secret_key,
                 region=region,
                 backup_frequency=backup_frequency,
-                retention_days=retention_days
+                retention_days=retention_days,
+                scheduler_type=request.form.get('scheduler_type', 'python')
             )
             db.session.add(inst)
             db.session.commit()
@@ -1722,6 +2661,7 @@ def update_instance(instance_id):
         backup_frequency = request.form.get('backup_frequency', '').strip()
         custom_backup_frequency = request.form.get('custom_backup_frequency', '').strip()
         retention_days = request.form.get('retention_days', 7, type=int)
+        scheduler_type = request.form.get('scheduler_type', 'python')
         
         # Handle custom backup frequency
         if backup_frequency == 'custom':
@@ -1745,9 +2685,11 @@ def update_instance(instance_id):
         
         # Update instance
         old_frequency = instance.backup_frequency
+        old_scheduler_type = instance.scheduler_type
         instance.instance_name = instance_name
         instance.backup_frequency = backup_frequency
         instance.retention_days = retention_days
+        instance.scheduler_type = scheduler_type
         instance.updated_at = datetime.now(UTC)
         
         # Update AWS credentials if provided
@@ -1766,11 +2708,11 @@ def update_instance(instance_id):
         
         db.session.commit()
         
-        # Reschedule backup if frequency changed
-        if old_frequency != backup_frequency:
+        # Reschedule backup if frequency or scheduler type changed
+        if old_frequency != backup_frequency or old_scheduler_type != scheduler_type:
             try:
-                reschedule_instance_backup(instance)
-                #1 flash("Backup schedule updated", "info")
+                reschedule_instance_backup(instance, old_scheduler_type)
+                flash("Backup schedule updated", "info")
             except Exception as e:
                 logger.warning(f"Could not reschedule backup for {instance_id}: {e}")
         
@@ -1881,7 +2823,7 @@ def delete_instance(instance_id):
         
         # Remove scheduled backup job
         try:
-            remove_instance_backup_schedule(instance_id)
+            remove_instance_backup_schedule(instance_id, instance.scheduler_type)
         except Exception as e:
             logger.warning(f"Could not remove backup schedule for {instance_id}: {e}")
         
@@ -2161,26 +3103,12 @@ def export_instances():
 #         raise
 
 
-def remove_instance_backup_schedule(instance_id):
-    """Remove scheduled backup job for an instance"""
-    try:
-        # Remove from scheduler
-        logger.info(f"Removing backup schedule for instance {instance_id}")
-        # Add actual schedule removal logic here
-        pass
-    except Exception as e:
-        logger.error(f"Error removing backup schedule for {instance_id}: {e}")
-        raise
+# This function has been moved and updated with additional parameters
+# See the implementation at line ~664 that includes scheduler_type parameter
 
 
-def reschedule_instance_backup(instance):
-    """Reschedule backup job for an instance"""
-    try:
-        remove_instance_backup_schedule(instance.instance_id)
-        schedule_instance_backup(instance)
-    except Exception as e:
-        logger.error(f"Error rescheduling backup for {instance.instance_id}: {e}")
-        raise
+# This function has been moved and updated with additional parameters
+# See the implementation at line ~664 that includes old_scheduler_type parameter
 
 # Add these routes to your existing Flask application
 
@@ -4535,12 +5463,18 @@ def schedules():
         if request.method == 'POST':
             instance_id = request.form.get('instance_id')
             scheduler_type = request.form.get('scheduler_type')
+            cron_schedule = request.form.get('cron_schedule')
             
             if instance_id and scheduler_type in ['python', 'eventbridge']:
                 instance = Instance.query.filter_by(instance_id=instance_id).first()
                 if instance:
                     # Update scheduler type
                     instance.scheduler_type = scheduler_type
+                    
+                    # If switching to EventBridge and a cron schedule is provided, update the backup frequency
+                    if scheduler_type == 'eventbridge' and cron_schedule:
+                        instance.backup_frequency = cron_schedule
+                    
                     db.session.commit()
                     
                     # Reschedule the backup
@@ -4742,9 +5676,12 @@ def calculate_next_run(schedule_expression, current_time):
             cron_expr = schedule_expression[5:-1]  # Remove 'cron(' and ')'
             parts = cron_expr.split()
             
+            # Handle both 5-field and 6-field cron expressions
             if len(parts) == 6:  # AWS cron format: minute hour day month day-of-week year
                 # Convert to standard cron format (remove year)
                 cron_parts = parts[:5]
+            elif len(parts) == 5:  # Standard cron format: minute hour day month day-of-week
+                cron_parts = parts
                 
                 # Simple next run calculation for common patterns
                 minute, hour, day, month, dow = cron_parts
