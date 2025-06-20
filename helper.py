@@ -7,15 +7,15 @@ This tool provides administrative functions for user management, database operat
 and system maintenance.
 
 Usage:
-    python helper.py                      - Interactive mode with menu
-    python helper.py --help               - Display this help message
-    python helper.py --list               - List all users in the system
-    python helper.py --recreate-db        - Recreate database (warning: deletes all data)
-    python helper.py --check-system       - Check system health and configuration
-    python helper.py --backup-config      - Backup system configuration
-    python helper.py --restore-config     - Restore system configuration
-    python helper.py --version            - Display version information
-    python helper.py username password email - Create/update a user non-interactively
+    python helper.py                          - Interactive mode with menu
+    python helper.py --help                   - Display this help message
+    python helper.py --list                   - List all users in the system
+    python helper.py --recreate-db            - Recreate database (warning: deletes all data)
+    python helper.py --check-system           - Check system health and configuration
+    python helper.py --backup-config          - Backup system configuration
+    python helper.py --restore-config         - Restore system configuration
+    python helper.py --version                - Display version information
+    python helper.py username password email  - Create/update a user non-interactively
 
 For more information, visit: https://github.com/s3csys/amivault
 """
@@ -518,7 +518,7 @@ def check_system():
     return True
 
 def backup_config():
-    """Backup system configuration to an organized folder structure."""
+    """Backup system configuration and credentials to an organized folder structure."""
     try:
         # Create main backups directory if it doesn't exist
         main_backup_dir = "backups"
@@ -550,11 +550,11 @@ def backup_config():
         current_time = datetime.now()
         date_str = current_time.strftime("%Y-%m-%d")
         time_str = current_time.strftime("%I-%M-%S-%p")  # 12-hour format with AM/PM
-        backup_subfolder = f"amivault_config_backup_{date_str}_{time_str}"
+        backup_subfolder = f"amivault_backup_{date_str}_{time_str}"
         backup_dir = os.path.join(main_backup_dir, backup_subfolder)
         os.makedirs(backup_dir, exist_ok=True)
         
-        print(f"📦 Creating configuration backup in {backup_dir}...")
+        print(f"📦 Creating complete backup in {backup_dir}...")
         
         # Backup database if SQLite
         with app.app_context():
@@ -572,6 +572,7 @@ def backup_config():
         
         # Backup user data
         with app.app_context():
+            # Backup users
             users = User.query.all()
             user_data = [{
                 "username": user.username,
@@ -601,13 +602,51 @@ def backup_config():
             with open(os.path.join(backup_dir, "settings.json"), "w") as f:
                 json.dump(settings_data, f, indent=2)
             print(f"  ✅ Settings backed up")
+            
+            # Backup AWS credentials
+            credentials = AWSCredential.query.all()
+            credentials_data = [{
+                "id": cred.id,
+                "name": cred.name,
+                "access_key": cred.access_key,
+                "secret_key": cred.secret_key,
+                "region": cred.region,
+                "user_id": cred.user_id,
+                "created_at": cred.created_at.isoformat() if cred.created_at else None,
+                "updated_at": cred.updated_at.isoformat() if cred.updated_at else None
+            } for cred in credentials]
+            
+            with open(os.path.join(backup_dir, "aws_credentials.json"), "w") as f:
+                json.dump(credentials_data, f, indent=2)
+            print(f"  ✅ AWS credentials backed up ({len(credentials_data)} records)")
+            
+            # Backup instances
+            instances = Instance.query.all()
+            instances_data = [{
+                "instance_id": instance.instance_id,
+                "instance_name": instance.instance_name,
+                "region": instance.region,
+                "access_key": instance.access_key,
+                "secret_key": instance.secret_key,
+                "backup_frequency": instance.backup_frequency,
+                "retention_days": instance.retention_days,
+                "is_active": instance.is_active,
+                "scheduler_type": instance.scheduler_type,
+                "needs_status_polling": instance.needs_status_polling,
+                "created_at": instance.created_at.isoformat() if hasattr(instance, 'created_at') and instance.created_at else None,
+                "updated_at": instance.updated_at.isoformat() if hasattr(instance, 'updated_at') and instance.updated_at else None
+            } for instance in instances]
+            
+            with open(os.path.join(backup_dir, "instances.json"), "w") as f:
+                json.dump(instances_data, f, indent=2)
+            print(f"  ✅ Instances backed up ({len(instances_data)} records)")
         
-        print(f"\n✅ Configuration backup completed successfully")
+        print(f"\n✅ Complete backup completed successfully")
         print(f"📂 Backup location: {os.path.abspath(backup_dir)}")
         return True
     except Exception as e:
-        print(f"❌ Error backing up configuration: {e}")
-        logger.error(f"Error backing up configuration: {e}")
+        print(f"❌ Error creating backup: {e}")
+        logger.error(f"Error creating backup: {e}")
         return False
 
 def restore_config():
@@ -851,15 +890,15 @@ def show_help():
     display_logo()
     print("\nAMIVault Administration Helper Tool")
     print("\nAvailable Commands:")
-    print("  python helper.py                      - Interactive mode with menu")
-    print("  python helper.py --help               - Display this help message")
-    print("  python helper.py --list               - List all users in the system")
-    print("  python helper.py --recreate-db        - Recreate the database (warning: deletes all data)")
-    print("  python helper.py --check-system       - Check system health and configuration")
-    print("  python helper.py --backup-config      - Backup system configuration")
-    print("  python helper.py --restore-config     - Restore system configuration")
-    print("  python helper.py --version            - Display version information")
-    print("  python helper.py username password email - Create/update a user non-interactively")
+    print("  python helper.py                          - Interactive mode with menu")
+    print("  python helper.py --help                   - Display this help message")
+    print("  python helper.py --list                   - List all users in the system")
+    print("  python helper.py --recreate-db            - Recreate the database (warning: deletes all data)")
+    print("  python helper.py --check-system           - Check system health and configuration")
+    print("  python helper.py --backup-config          - Backup system configuration and AWS credentials")
+    print("  python helper.py --restore-config         - Restore system configuration")
+    print("  python helper.py --version                - Display version information")
+    print("  python helper.py username password email  - Create/update a user non-interactively")
     print("\nFor more information, visit: https://github.com/s3csys/amivault")
     return True
 
@@ -877,7 +916,7 @@ def main():
         print("4. Delete user")
         print("5. Recreate database (⚠️  DANGER ZONE)")
         print("6. Check system health")
-        print("7. Backup configuration")
+        print("7. Backup configuration and credentials")
         print("8. Restore configuration")
         print("9. Show version information")
         print("0. Exit")
@@ -931,7 +970,7 @@ def main():
             check_system()
         
         elif choice == '7':
-            # Backup configuration
+            # Backup configuration and credentials
             backup_config()
         
         elif choice == '8':
@@ -977,6 +1016,11 @@ if __name__ == "__main__":
             # Usage: python helper.py --backup-config
             display_logo()
             backup_config()
+        elif arg == '--backup-credentials':
+            # For backward compatibility, redirect to backup_config
+            display_logo()
+            print("⚠️  Note: --backup-credentials is deprecated. Using --backup-config instead.")
+            backup_config()
         elif arg == '--restore-config':
             # Usage: python helper.py --restore-config
             display_logo()
@@ -994,3 +1038,69 @@ if __name__ == "__main__":
     else:
         # Interactive mode
         main()
+
+
+def backup_credentials():
+    """Backup AWS credentials and instances from the database."""
+    try:
+        # Create main backups directory if it doesn't exist
+        main_backup_dir = "backups"
+        os.makedirs(main_backup_dir, exist_ok=True)
+        
+        # Create human-readable timestamped subfolder for this backup
+        current_time = datetime.now()
+        date_str = current_time.strftime("%Y-%m-%d")
+        time_str = current_time.strftime("%I-%M-%S-%p")  # 12-hour format with AM/PM
+        backup_subfolder = f"amivault_credentials_backup_{date_str}_{time_str}"
+        backup_dir = os.path.join(main_backup_dir, backup_subfolder)
+        os.makedirs(backup_dir, exist_ok=True)
+        
+        print(f"📦 Creating credentials backup in {backup_dir}...")
+        
+        # Backup AWS credentials
+        with app.app_context():
+            # Backup AWS credentials
+            credentials = AWSCredential.query.all()
+            credentials_data = [{
+                "id": cred.id,
+                "name": cred.name,
+                "access_key": cred.access_key,
+                "secret_key": cred.secret_key,
+                "region": cred.region,
+                "user_id": cred.user_id,
+                "created_at": cred.created_at.isoformat() if cred.created_at else None,
+                "updated_at": cred.updated_at.isoformat() if cred.updated_at else None
+            } for cred in credentials]
+            
+            with open(os.path.join(backup_dir, "aws_credentials.json"), "w") as f:
+                json.dump(credentials_data, f, indent=2)
+            print(f"  ✅ AWS credentials backed up ({len(credentials_data)} records)")
+            
+            # Backup instances
+            instances = Instance.query.all()
+            instances_data = [{
+                "instance_id": instance.instance_id,
+                "instance_name": instance.instance_name,
+                "region": instance.region,
+                "access_key": instance.access_key,
+                "secret_key": instance.secret_key,
+                "backup_frequency": instance.backup_frequency,
+                "retention_days": instance.retention_days,
+                "is_active": instance.is_active,
+                "scheduler_type": instance.scheduler_type,
+                "needs_status_polling": instance.needs_status_polling,
+                "created_at": instance.created_at.isoformat() if hasattr(instance, 'created_at') and instance.created_at else None,
+                "updated_at": instance.updated_at.isoformat() if hasattr(instance, 'updated_at') and instance.updated_at else None
+            } for instance in instances]
+            
+            with open(os.path.join(backup_dir, "instances.json"), "w") as f:
+                json.dump(instances_data, f, indent=2)
+            print(f"  ✅ Instances backed up ({len(instances_data)} records)")
+        
+        print(f"\n✅ Credentials backup completed successfully")
+        print(f"📂 Backup location: {os.path.abspath(backup_dir)}")
+        return True
+    except Exception as e:
+        print(f"❌ Error backing up credentials: {e}")
+        logger.error(f"Error backing up credentials: {e}")
+        return False    
