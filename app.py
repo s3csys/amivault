@@ -305,6 +305,9 @@ def poll_ami_status(instance_id=None, return_details=False):
                 if latest_backup:
                     # If we have a previous backup, calculate when the next one should occur
                     last_backup_time = latest_backup.timestamp
+                    # Ensure last_backup_time has timezone information
+                    if last_backup_time.tzinfo is None:
+                        last_backup_time = last_backup_time.replace(tzinfo=UTC)
                     # Add a buffer time (10 minutes) to account for scheduling delays
                     buffer_time = timedelta(minutes=10)
                     
@@ -1553,6 +1556,22 @@ def reschedule_instance_backup(instance, old_scheduler_type=None):
                 except Exception as e:
                     logger.error(f"Error checking/deploying Lambda function for {instance.instance_id}: {e}")
             
+            # If changing from EventBridge to Python, check if we need to remove ami_status_polling job
+            if old_scheduler_type == 'eventbridge' and instance.scheduler_type == 'python':
+                with app.app_context():
+                    # Check if there are any remaining instances that need polling
+                    instances_needing_polling = Instance.query.filter_by(
+                        is_active=True, 
+                        needs_status_polling=True, 
+                        scheduler_type='eventbridge'
+                    ).count()
+                    
+                    # If this was the last instance needing polling, remove the job
+                    if instances_needing_polling <= 1:  # This instance is being changed
+                        if scheduler.get_job("ami_status_polling"):
+                            scheduler.remove_job("ami_status_polling")
+                            logger.info("Removed ami_status_polling job as no instances require polling")
+            
             try:
                 remove_instance_backup_schedule(instance.instance_id, old_scheduler_type)
                 logger.info(f"Removed {old_scheduler_type} backup schedule for instance {instance.instance_id}")
@@ -1614,9 +1633,27 @@ def remove_lambda_function():
         region = arn_parts[3]
         function_name = arn_parts[6]
         
-        # Create a boto3 session with default credentials
-        # This assumes the application has AWS credentials configured
-        boto3_session = boto3.Session(region_name=region)
+        # Find an instance with valid AWS credentials to use for deleting the Lambda function
+        with app.app_context():
+            # Try to find an instance that uses EventBridge scheduler
+            instance = Instance.query.filter_by(scheduler_type='eventbridge').first()
+            
+            # If no EventBridge instance found, try to find any instance with credentials
+            if not instance:
+                instance = Instance.query.first()
+            
+            if not instance:
+                logger.error("No instances found with AWS credentials to delete Lambda function")
+                # Still remove from .env file even if we can't delete the Lambda
+                remove_env_variable('BACKUP_LAMBDA_ARN')
+                return False
+            
+            # Create boto3 session with instance credentials
+            boto3_session = boto3.Session(
+                aws_access_key_id=instance.access_key,
+                aws_secret_access_key=instance.secret_key,
+                region_name=region  # Use the region from the Lambda ARN, not the instance region
+            )
         
         # Create Lambda client
         lambda_client = boto3_session.client('lambda')
@@ -1637,6 +1674,8 @@ def remove_lambda_function():
             return True
         except Exception as e:
             logger.error(f"Error deleting Lambda function {function_name}: {e}")
+            # Still remove from .env file even if we can't delete the Lambda
+            remove_env_variable('BACKUP_LAMBDA_ARN')
             return False
     except Exception as e:
         logger.error(f"Error removing Lambda function: {e}")
@@ -1740,6 +1779,19 @@ def remove_instance_backup_schedule(instance_id, scheduler_type='python'):
                         if eventbridge_instances_count <= 1:  # This instance is being removed or changed
                             logger.info("This is the last instance using EventBridge, removing Lambda function")
                             remove_lambda_function()
+                            
+                            # Also check if we need to remove the ami_status_polling job
+                            instances_needing_polling = Instance.query.filter_by(
+                                is_active=True, 
+                                needs_status_polling=True, 
+                                scheduler_type='eventbridge'
+                            ).count()
+                            
+                            if instances_needing_polling <= 1:  # This instance is being removed or changed
+                                # Remove the ami_status_polling job if it exists
+                                if scheduler.get_job("ami_status_polling"):
+                                    scheduler.remove_job("ami_status_polling")
+                                    logger.info("Removed ami_status_polling job as no instances require polling")
                     
                     logger.info(f"Removed EventBridge backup schedule for instance {instance_id}")
                     return True
@@ -3181,7 +3233,7 @@ def update_instance(instance_id):
         if old_frequency != backup_frequency or old_scheduler_type != scheduler_type:
             try:
                 reschedule_instance_backup(instance, old_scheduler_type)
-                flash("Backup schedule updated", "info")
+                # flash("Backup schedule updated", "info")
             except Exception as e:
                 logger.warning(f"Could not reschedule backup for {instance_id}: {e}")
         
