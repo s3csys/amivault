@@ -1,12 +1,17 @@
 import pytest
+import os
+import io
 from app import app, db, User, AWSCredential, Instance, Backup, validate_cron_expression, convert_to_eventbridge_format
 from datetime import datetime, UTC
 import json
 import pyotp
-import io
 import csv
 from unittest.mock import patch, MagicMock
 from botocore.exceptions import ClientError, NoCredentialsError
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 @pytest.fixture
 def client():
@@ -282,8 +287,8 @@ def test_bulk_delete_amis_success(mock_boto3_client, client, test_instance):
     mock_boto3_client.assert_called_with(
         'ec2',
         region_name='us-west-2',
-        aws_access_key_id='REMOVED_AWS_KEY',
-        aws_secret_access_key='REMOVED_AWS_SECRET'
+        aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+        aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY")
     )
     
     # Verify deregister_image was called
@@ -405,8 +410,8 @@ def test_bulk_tag_amis_success(mock_boto3_client, client, test_instance):
     mock_boto3_client.assert_called_with(
         'ec2',
         region_name='us-west-2',
-        aws_access_key_id='REMOVED_AWS_KEY',
-        aws_secret_access_key='REMOVED_AWS_SECRET'
+        aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+        aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY")
     )
     
     # Verify create_tags was called for each AMI
@@ -468,8 +473,8 @@ def aws_credential():
     """Create a test AWS credential"""
     credential = AWSCredential(
         name='Test Credential',
-        access_key='REMOVED_AWS_KEY',
-        secret_key='REMOVED_AWS_SECRET',
+        access_key=os.getenv("AWS_ACCESS_KEY_ID"),
+        secret_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
         region='us-west-2',
         user_id=1  # Admin user ID
     )
@@ -508,8 +513,8 @@ def test_check_instance_direct_credentials_success(mock_boto3_client, client):
     # Call check-instance route with direct credentials
     response = client.post('/check-instance', json={
         'instance_id': 'i-1234567890abcdef0',
-        'access_key': 'REMOVED_AWS_KEY',
-        'secret_key': 'REMOVED_AWS_SECRET',
+        'access_key': os.getenv("AWS_ACCESS_KEY_ID"),
+        'secret_key': os.getenv("AWS_SECRET_ACCESS_KEY"),
         'region': 'us-west-2'
     })
     
@@ -527,8 +532,8 @@ def test_check_instance_direct_credentials_success(mock_boto3_client, client):
     mock_boto3_client.assert_called_once_with(
         'ec2',
         region_name='us-west-2',
-        aws_access_key_id='REMOVED_AWS_KEY',
-        aws_secret_access_key='REMOVED_AWS_SECRET',
+        aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+        aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
         config=mock_boto3_client.call_args[1]['config']
     )
     mock_ec2.describe_instances.assert_called_once_with(InstanceIds=['i-1234567890abcdef0'])
@@ -585,8 +590,8 @@ def test_check_instance_saved_credentials_success(mock_boto3_client, client, aws
     mock_boto3_client.assert_called_once_with(
         'ec2',
         region_name='us-west-2',
-        aws_access_key_id='REMOVED_AWS_KEY',
-        aws_secret_access_key='REMOVED_AWS_SECRET',
+        aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+        aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
         config=mock_boto3_client.call_args[1]['config']
     )
 
@@ -614,8 +619,8 @@ def test_check_instance_invalid_instance_id(mock_boto3_client, client):
     # Call check-instance route with invalid instance ID
     response = client.post('/check-instance', json={
         'instance_id': 'i-nonexistent',
-        'access_key': 'REMOVED_AWS_KEY',
-        'secret_key': 'REMOVED_AWS_SECRET',
+        'access_key': os.getenv("AWS_ACCESS_KEY_ID"),
+        'secret_key': os.getenv("AWS_SECRET_ACCESS_KEY"),
         'region': 'us-west-2'
     })
     
@@ -649,8 +654,8 @@ def test_check_instance_invalid_credentials(mock_boto3_client, client):
     # Call check-instance route with invalid credentials
     response = client.post('/check-instance', json={
         'instance_id': 'i-1234567890abcdef0',
-        'access_key': 'REMOVED_AWS_KEY',
-        'secret_key': 'REMOVED_AWS_SECRET',
+        'access_key': os.getenv("AWS_ACCESS_KEY_ID"),
+        'secret_key': os.getenv("AWS_SECRET_ACCESS_KEY"),
         'region': 'us-west-2'
     })
     
@@ -697,8 +702,8 @@ def test_instance(client):
             instance_id='i-1234567890abcdef0',
             instance_name='Test Instance',
             region='us-west-2',
-            access_key='REMOVED_AWS_KEY',
-            secret_key='REMOVED_AWS_SECRET',
+            access_key=os.getenv("AWS_ACCESS_KEY_ID"),
+            secret_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
             backup_frequency='daily',
             retention_days=7,
             is_active=True
@@ -778,8 +783,8 @@ def test_add_instance_success(client):
         instance = Instance(
             instance_id='i-1234567890abcdef0',
             instance_name='Test Instance',
-            access_key='REMOVED_AWS_KEY',
-            secret_key='REMOVED_AWS_SECRET',
+            access_key=os.getenv("AWS_ACCESS_KEY_ID"),
+            secret_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
             region='us-west-2',
             backup_frequency='0 2 * * *',
             retention_days=7
@@ -826,8 +831,8 @@ def test_update_instance_success(mock_boto3_client, client):
         instance = Instance(
             instance_id='i-1234567890abcdef0',
             instance_name='Test Instance',
-            access_key='REMOVED_AWS_KEY',
-            secret_key='REMOVED_AWS_SECRET',
+            access_key=os.getenv("AWS_ACCESS_KEY_ID"),
+            secret_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
             region='us-west-2',
             backup_frequency='0 2 * * *',
             retention_days=7
@@ -846,8 +851,8 @@ def test_update_instance_success(mock_boto3_client, client):
             # Call update-instance route
             response = client.post('/update-instance/i-1234567890abcdef0', data={
                 'instance_name': 'Updated Test Instance',
-                'access_key': 'REMOVED_AWS_KEY',
-                'secret_key': 'REMOVED_AWS_SECRET',
+                'access_key': os.getenv("AWS_ACCESS_KEY_ID"),
+                'secret_key': os.getenv("AWS_SECRET_ACCESS_KEY"),
                 'region': 'us-west-2',
                 'backup_frequency': '0 4 * * *',  # Daily at 4 AM
                 'retention_days': '14'
@@ -912,8 +917,8 @@ def test_start_backup_success(mock_boto3_client, client):
             instance = Instance(
                 instance_id='i-1234567890abcdef0',
                 instance_name='Test Instance',
-                access_key='REMOVED_AWS_KEY',
-                secret_key='REMOVED_AWS_SECRET',
+                access_key=os.getenv("AWS_ACCESS_KEY_ID"),
+                secret_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
                 region='us-west-2',
                 backup_frequency='0 2 * * *',
                 retention_days=7,
@@ -947,8 +952,8 @@ def test_start_backup_success(mock_boto3_client, client):
     mock_boto3_client.assert_called_with(
         'ec2',
         region_name='us-west-2',
-        aws_access_key_id='REMOVED_AWS_KEY',
-        aws_secret_access_key='REMOVED_AWS_SECRET'
+        aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+        aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY")
     )
     mock_ec2.describe_instances.assert_called_with(InstanceIds=['i-1234567890abcdef0'])
     mock_ec2.create_image.assert_called_once()
@@ -970,8 +975,8 @@ def test_delete_instance_success(mock_boto3_client, client):
         instance = Instance(
             instance_id='i-1234567890abcdef0',
             instance_name='Test Instance',
-            access_key='REMOVED_AWS_KEY',
-            secret_key='REMOVED_AWS_SECRET',
+            access_key=os.getenv("AWS_ACCESS_KEY_ID"),
+            secret_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
             region='us-west-2',
             backup_frequency='0 2 * * *',
             retention_days=7
@@ -1015,8 +1020,8 @@ def test_delete_instance_with_backups(mock_boto3_client, client):
         instance = Instance(
             instance_id='i-1234567890abcdef0',
             instance_name='Test Instance',
-            access_key='REMOVED_AWS_KEY',
-            secret_key='REMOVED_AWS_SECRET',
+            access_key=os.getenv("AWS_ACCESS_KEY_ID"),
+            secret_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
             region='us-west-2',
             backup_frequency='0 2 * * *',
             retention_days=7
@@ -1557,8 +1562,8 @@ def test_add_instance_with_eventbridge_scheduler(mock_boto3_session, client):
             instance = Instance(
                 instance_id='i-eventbridge123456',
                 instance_name='EventBridge Test Instance',
-                access_key='REMOVED_AWS_KEY',
-                secret_key='REMOVED_AWS_SECRET',
+                access_key=os.getenv("AWS_ACCESS_KEY_ID"),
+                secret_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
                 region='us-west-2',
                 backup_frequency='0 2 * * *',
                 retention_days=7,
@@ -1607,8 +1612,8 @@ def test_add_instance_with_eventbridge_scheduler(mock_boto3_session, client):
                 response = client.post('/add-instance', data={
                     'instance_id': 'i-eventbridge123456',
                     'instance_name': 'EventBridge Test Instance',
-                    'access_key': 'REMOVED_AWS_KEY',
-                    'secret_key': 'REMOVED_AWS_SECRET',
+                    'access_key': os.getenv("AWS_ACCESS_KEY_ID"),
+                    'secret_key': os.getenv("AWS_SECRET_ACCESS_KEY"),
                     'region': 'us-west-2',
                     'backup_frequency': '0 2 * * *',
                     'retention_days': '7',
@@ -1668,8 +1673,8 @@ def test_update_instance_scheduler_type(mock_boto3_client, client):
         instance = Instance(
             instance_id='i-1234567890abcdef0',
             instance_name='Test Instance',
-            access_key='REMOVED_AWS_KEY',
-            secret_key='REMOVED_AWS_SECRET',
+            access_key=os.getenv("AWS_ACCESS_KEY_ID"),
+            secret_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
             region='us-west-2',
             backup_frequency='0 2 * * *',
             retention_days=7,
@@ -1696,8 +1701,8 @@ def test_update_instance_scheduler_type(mock_boto3_client, client):
                     # Call update-instance route to change scheduler type
                     response = client.post('/update-instance/i-1234567890abcdef0', data={
                         'instance_name': 'Updated Test Instance',
-                        'access_key': 'REMOVED_AWS_KEY',
-                        'secret_key': 'REMOVED_AWS_SECRET',
+                        'access_key': os.getenv("AWS_ACCESS_KEY_ID"),
+                        'secret_key': os.getenv("AWS_SECRET_ACCESS_KEY"),
                         'region': 'us-west-2',
                         'backup_frequency': '0 4 * * *',  # Daily at 4 AM
                         'retention_days': '14',
