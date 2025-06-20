@@ -56,8 +56,8 @@ def lambda_handler(event, context):
                 break
         
         # Create AMI
-        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        ami_name = f"AMIVault-{instance_name}-{timestamp}"
+        timestamp = datetime.now().strftime("%Y_%m_%d_%I_%M_%p")
+        ami_name = f"{instance_name}_{timestamp}_eventbridge"
         
         ec2_client = boto3.client('ec2', region_name=region)
         ami_response = ec2_client.create_image(
@@ -77,7 +77,7 @@ def lambda_handler(event, context):
                 {'Key': 'CreatedBy', 'Value': 'AMIVault-Lambda'},
                 {'Key': 'InstanceId', 'Value': instance_id},
                 {'Key': 'InstanceName', 'Value': instance_name},
-                {'Key': 'BackupType', 'Value': 'scheduled'}
+                {'Key': 'BackupType', 'Value': 'eventbridge'}
             ]
         )
         

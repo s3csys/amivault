@@ -122,6 +122,7 @@ class BackupSettings(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     retention_days = db.Column(db.Integer, default=7, nullable=False)
     backup_frequency = db.Column(db.String(64), default="0 2 * * *", nullable=False)  # Daily at 2 AM
+    global_polling = db.Column(db.String(64), default="0 * * * *", nullable=False)  # Default every hour for polling
     instance_id = db.Column(db.String(64), nullable=False, default="global-config")
     instance_name = db.Column(db.String(128), default="Global Settings")
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), nullable=False)

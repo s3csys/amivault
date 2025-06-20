@@ -1,5 +1,5 @@
 # Keep or add these imports
-import pyotp, qrcode, io, base64, boto3, pytz, os, csv, secrets, logging, json
+import pyotp, qrcode, io, base64, boto3, pytz, os, csv, secrets, logging, json, time
 from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify, send_file, make_response
 from dotenv import load_dotenv
 from datetime import datetime, timezone, timedelta, UTC
@@ -241,7 +241,7 @@ def calculate_next_backup_time(backup_frequency):
         # Default to 24 hours if invalid
         return now + timedelta(hours=24)
 
-def poll_ami_status(instance_id=None):
+def poll_ami_status(instance_id=None, return_details=False):
     """Poll AWS for AMI status updates for instances marked for polling
     
     This function is designed to be scheduled to run periodically to check for AMI status
@@ -250,7 +250,21 @@ def poll_ami_status(instance_id=None):
     
     Args:
         instance_id (str, optional): If provided, only poll for this specific instance
+        return_details (bool, optional): If True, return detailed information about the polling process
+    
+    Returns:
+        dict: If return_details is True, returns a dictionary with polling details
     """
+    # Initialize result dictionary if we need to return details
+    result = {
+        'instances_polled': 0,
+        'total_amis_found': 0,
+        'new_records_created': 0,
+        'records_updated': 0,
+        'errors': [],
+        'instance_details': {}
+    } if return_details else None
+    
     try:
         # Get instances that need status polling
         query = Instance.query.filter_by(is_active=True, needs_status_polling=True, scheduler_type='eventbridge')
@@ -263,9 +277,14 @@ def poll_ami_status(instance_id=None):
         
         if not instances:
             logger.debug("No instances require AMI status polling")
+            if return_details:
+                return result
             return
             
         logger.info(f"Polling AMI status for {len(instances)} instances")
+        
+        if return_details:
+            result['instances_polled'] = len(instances)
         
         for instance in instances:
             try:
@@ -297,24 +316,38 @@ def poll_ami_status(instance_id=None):
                 
                 # Get all AMIs created after the from_time
                 try:
-                    # Filter AMIs by the instance ID in the name or description
+                    # Filter AMIs by state only, we'll filter by date manually
                     response = ec2_client.describe_images(
                         Owners=['self'],
                         Filters=[
                             {
                                 'Name': 'state',
                                 'Values': ['available', 'pending']
-                            },
-                            {
-                                'Name': 'creation-date',
-                                'Values': [from_time.strftime('%Y-%m-%d')+'*']
                             }
+                            # Removed date filter - we'll filter by exact timestamp below
                         ]
                     )
                     
-                    # Filter images that match our instance ID pattern
+                    # Log the number of AMIs found before filtering
+                    logger.debug(f"Found {len(response.get('Images', []))} AMIs before timestamp filtering")
+                    
+                    # Filter images that match our instance ID pattern and were created after from_time
                     instance_amis = []
                     for image in response.get('Images', []):
+                        # Check creation date against our from_time
+                        creation_date_str = image.get('CreationDate')
+                        try:
+                            # AWS returns ISO format timestamps
+                            creation_date = datetime.fromisoformat(creation_date_str.replace('Z', '+00:00'))
+                            
+                            # Skip images created before our from_time
+                            if creation_date < from_time:
+                                logger.debug(f"Skipping AMI {image.get('ImageId')} created at {creation_date} (before {from_time})")
+                                continue
+                        except (ValueError, AttributeError) as e:
+                            logger.warning(f"Could not parse creation date '{creation_date_str}': {e}")
+                            # If we can't parse the date, include it to be safe
+                        
                         # Check if this AMI was created for this instance
                         # Look for instance ID in name, description, or tags
                         name = image.get('Name', '')
@@ -323,57 +356,74 @@ def poll_ami_status(instance_id=None):
                         
                         # Check if instance ID is in name or description
                         if instance.instance_id in name or instance.instance_id in description:
+                            logger.debug(f"Found AMI {image.get('ImageId')} matching instance ID in name/description")
                             instance_amis.append(image)
                             continue
                             
                         # Check if instance ID is in tags
                         for tag in tags:
                             if tag.get('Key') == 'InstanceId' and tag.get('Value') == instance.instance_id:
+                                logger.debug(f"Found AMI {image.get('ImageId')} matching instance ID in tags")
                                 instance_amis.append(image)
                                 break
                     
                     # Process any AMIs found
+                    logger.info(f"Found {len(instance_amis)} AMIs matching instance {instance.instance_id} after filtering")
                     for ami in instance_amis:
                         ami_id = ami.get('ImageId')
                         ami_name = ami.get('Name')
                         ami_state = ami.get('State')
                         creation_date_str = ami.get('CreationDate')
                         
+                        logger.debug(f"Processing AMI {ami_id} (name: {ami_name}, state: {ami_state})")
+                        
                         # Parse the creation date
                         try:
                             # AWS returns ISO format timestamps
                             creation_date = datetime.fromisoformat(creation_date_str.replace('Z', '+00:00'))
-                        except (ValueError, AttributeError):
+                            logger.debug(f"AMI {ami_id} creation date: {creation_date}")
+                        except (ValueError, AttributeError) as e:
                             # If we can't parse the date, use current time
                             creation_date = datetime.now(UTC)
+                            logger.warning(f"Could not parse creation date for AMI {ami_id}: {e}, using current time")
                         
                         # Check if we already have a record for this AMI
                         existing_backup = Backup.query.filter_by(instance_id=instance.instance_id, ami_id=ami_id).first()
                         
                         if existing_backup:
+                            logger.debug(f"Found existing backup record for AMI {ami_id}")
                             # Update the status if needed
                             if existing_backup.status != 'Success' and ami_state == 'available':
                                 existing_backup.status = 'Success'
                                 existing_backup.completed_at = datetime.now(UTC)
-                                db.session.commit()
-                                logger.info(f"Updated status to Success for AMI {ami_id} (instance {instance.instance_id})")
+                                try:
+                                    db.session.commit()
+                                    logger.info(f"Updated status to Success for AMI {ami_id} (instance {instance.instance_id})")
+                                except Exception as e:
+                                    db.session.rollback()
+                                    logger.error(f"Error updating backup record for AMI {ami_id}: {e}")
                         else:
+                            logger.debug(f"No existing backup record found for AMI {ami_id}, creating new record")
                             # Create a new backup record
-                            new_backup = Backup(
-                                instance_id=instance.instance_id,
-                                ami_id=ami_id,
-                                ami_name=ami_name,
-                                status='Success' if ami_state == 'available' else 'Pending',
-                                timestamp=creation_date,
-                                created_at=datetime.now(UTC),
-                                completed_at=datetime.now(UTC) if ami_state == 'available' else None,
-                                retention_days=instance.retention_days,
-                                region=instance.region,
-                                instance_name=instance.instance_name
-                            )
-                            db.session.add(new_backup)
-                            db.session.commit()
-                            logger.info(f"Created new backup record for AMI {ami_id} (instance {instance.instance_id})")
+                            try:
+                                new_backup = Backup(
+                                    instance_id=instance.instance_id,
+                                    ami_id=ami_id,
+                                    ami_name=ami_name,
+                                    status='Success' if ami_state == 'available' else 'Pending',
+                                    timestamp=creation_date,
+                                    created_at=datetime.now(UTC),
+                                    completed_at=datetime.now(UTC) if ami_state == 'available' else None,
+                                    retention_days=instance.retention_days,
+                                    region=instance.region,
+                                    instance_name=instance.instance_name
+                                )
+                                db.session.add(new_backup)
+                                db.session.commit()
+                                logger.info(f"Created new backup record for AMI {ami_id} (instance {instance.instance_id})")
+                            except Exception as e:
+                                db.session.rollback()
+                                logger.error(f"Error creating backup record for AMI {ami_id}: {e}")
                     
                     if not instance_amis:
                         logger.debug(f"No new AMIs found for instance {instance.instance_id}")
@@ -388,9 +438,9 @@ def poll_ami_status(instance_id=None):
     except Exception as e:
         logger.error(f"Error in poll_ami_status: {e}")
 
-# Schedule the AMI status polling job based on instance backup frequencies
+# Schedule the AMI status polling job based on instance backup frequency, falling back to global polling setting
 def schedule_ami_status_polling(run_immediate=False, instance_id=None):
-    """Schedule the AMI status polling job based on instance backup frequencies
+    """Schedule the AMI status polling job based on instance backup frequency
     
     Args:
         run_immediate (bool): If True, schedule a one-time job to run after a short delay
@@ -423,86 +473,101 @@ def schedule_ami_status_polling(run_immediate=False, instance_id=None):
         logger.info("No EventBridge instances require AMI status polling, skipping scheduler setup")
         return
     
-    # Get global backup settings
-    global_settings = BackupSettings.query.first()
-    default_frequency = global_settings.backup_frequency if global_settings else "60"  # Default 60 minutes
-    
-    # Determine the polling interval based on the most frequent backup schedule
-    # This ensures we check often enough to catch all AMI status changes
-    min_interval_minutes = 60  # Default to 60 minutes if no instances need polling
-    
-    for instance in instances_needing_polling:
-        # Get the backup frequency for this instance
-        frequency = instance.backup_frequency
+    # Try to use the backup_frequency from the first instance
+    try:
+        # Use the first instance's backup_frequency as the polling schedule
+        instance_frequency = instances_needing_polling[0].backup_frequency
+        logger.info(f"Using instance backup frequency for polling: {instance_frequency}")
         
-        # Convert frequency to minutes for comparison
-        interval_minutes = 60  # Default to 60 minutes
+        # Schedule the regular polling job using the instance's backup frequency
+        scheduler.add_job(
+            id=job_id,
+            func=poll_ami_status_with_context,
+            trigger='cron',
+            replace_existing=True,
+            **parse_cron_expression(instance_frequency)
+        )
+        logger.info(f"Scheduled AMI status polling job with instance frequency: {instance_frequency}")
+    except Exception as e:
+        # If there's any issue with using instance frequency, fall back to global polling
+        logger.warning(f"Error using instance backup frequency for polling: {e}. Falling back to global polling.")
         
-        if frequency.startswith('@'):
-            # Handle interval-based schedules (e.g., @12 for every 12 hours)
-            try:
-                hours = int(frequency[1:])
-                interval_minutes = hours * 60
-            except ValueError:
-                logger.warning(f"Invalid interval format for instance {instance.instance_id}: {frequency}")
+        # Get global backup settings for polling frequency as fallback
+        global_settings = BackupSettings.query.first()
+        
+        if not global_settings or not global_settings.global_polling:
+            logger.warning("No global polling setting found, using default hourly cron schedule")
+            global_polling = "0 * * * *"  # Default to hourly if not set
         else:
-            # For cron expressions, we'll use a reasonable default polling interval
-            # since it's hard to determine the exact interval from a cron expression
-            interval_minutes = 30
+            global_polling = global_settings.global_polling
+            logger.info(f"Using global polling schedule as fallback: {global_polling}")
         
-        # Update the minimum interval if this instance has a more frequent schedule
-        min_interval_minutes = min(min_interval_minutes, interval_minutes)
-        
-        # If run_immediate is requested for this specific instance, schedule a one-time job
-        # that runs after the instance's backup frequency plus a 10-second delay
-        if run_immediate and instance_id and instance.instance_id == instance_id:
-            immediate_job_id = f"immediate_ami_status_polling_{instance.instance_id}"
-            if not scheduler.get_job(immediate_job_id):
-                # Add 10 seconds to the instance's backup frequency
-                delay_seconds = 10  # 10 second delay after AMI creation
-                
-                # Create a partial function that includes the instance ID
-                def poll_specific_instance():
-                    poll_ami_status_with_context(specific_instance_id=instance.instance_id)
-                
-                scheduler.add_job(
-                    id=immediate_job_id,
-                    func=poll_specific_instance,
-                    trigger='date',
-                    run_date=datetime.now() + timedelta(seconds=delay_seconds),
-                    replace_existing=True
-                )
-                logger.info(f"Scheduled one-time AMI status polling job for instance {instance.instance_id} to run after {delay_seconds} seconds")
+        # Schedule the regular polling job using the global polling cron schedule
+        scheduler.add_job(
+            id=job_id,
+            func=poll_ami_status_with_context,
+            trigger='cron',
+            replace_existing=True,
+            **parse_cron_expression(global_polling)
+        )
+        logger.info(f"Scheduled AMI status polling job with fallback cron schedule: {global_polling}")
     
-    # Ensure the polling interval is reasonable (not too frequent, not too infrequent)
-    # Minimum 5 minutes, maximum 60 minutes
-    polling_interval = max(5, min(min_interval_minutes // 2, 60))
-    
-    # Use the wrapper function with the calculated interval
-    scheduler.add_job(
-        id=job_id,
-        func=poll_ami_status_with_context,
-        trigger='interval',
-        minutes=polling_interval,
-        replace_existing=True
-    )
-    logger.info(f"Scheduled AMI status polling job to run every {polling_interval} minutes based on instance backup frequencies")
+    # If run_immediate is requested for a specific instance, schedule a one-time job
+    if run_immediate and instance_id:
+        immediate_job_id = f"immediate_ami_status_polling_{instance_id}"
+        if not scheduler.get_job(immediate_job_id):
+            # Schedule immediate polling with a 10-second delay
+            def poll_specific_instance():
+                # Add a 10-second sleep before polling to ensure AWS has time to process
+                time.sleep(60)
+                poll_ami_status_with_context(specific_instance_id=instance_id)
+            
+            scheduler.add_job(
+                id=immediate_job_id,
+                func=poll_specific_instance,
+                trigger='date',
+                run_date=datetime.now(),  # Run immediately, sleep is inside the function
+                replace_existing=True
+            )
+            logger.info(f"Scheduled one-time AMI status polling job for instance {instance_id} with 60-second sleep")
     
     # If run_immediate is requested but no specific instance_id was provided,
     # schedule a general immediate polling job
+    elif run_immediate and not instance_id:
+        immediate_job_id = "immediate_ami_status_polling"
+        if not scheduler.get_job(immediate_job_id):
+            # Create a function for general polling (no specific instance)
+            def poll_all_instances():
+                # Add a 10-second sleep before polling to ensure AWS has time to process
+                time.sleep(60)
+                poll_ami_status_with_context()
+                
+            scheduler.add_job(
+                id=immediate_job_id,
+                func=poll_all_instances,
+                trigger='date',
+                run_date=datetime.now(),  # Run immediately, sleep is inside the function
+                replace_existing=True
+            )
+            logger.info("Scheduled one-time AMI status polling job with 60-second sleep")
+    
+    # This appears to be a duplicate of the above condition, but keeping for safety
+    # with the updated sleep implementation
     if run_immediate and not instance_id and not scheduler.get_job("immediate_ami_status_polling"):
         # Create a function for general polling (no specific instance)
         def poll_all_instances():
+            # Add a 10-second sleep before polling to ensure AWS has time to process
+            time.sleep(60)
             poll_ami_status_with_context()
             
         scheduler.add_job(
             id="immediate_ami_status_polling",
             func=poll_all_instances,
             trigger='date',
-            run_date=datetime.now() + timedelta(seconds=10),  # Run after 10 seconds
+            run_date=datetime.now(),  # Run immediately, sleep is inside the function
             replace_existing=True
         )
-        logger.info("Scheduled one-time AMI status polling job to run after 10 seconds")
+        logger.info("Scheduled one-time AMI status polling job with 10-second sleep")
 
 # # Initialize database and scheduler after app starts
 # with app.app_context():
@@ -906,7 +971,7 @@ def schedule_instance_backup(instance):
                                     'Input': json.dumps({
                                         'instance_id': instance.instance_id,
                                         'action': 'create-image',
-                                        'name': f"AMIVault-{instance.instance_id}-{datetime.now().strftime('%Y%m%d-%H%M%S')}",
+                                        'name': f"{instance.instance_name}_{datetime.now().strftime('%Y_%m_%d_%I_%M_%p')}_eventbridge",
                                         'description': f"Automated backup created by AMIVault"
                                     })
                                 }
@@ -942,6 +1007,10 @@ def schedule_instance_backup(instance):
                             instance.needs_status_polling = True
                             db.session.commit()
                             logger.info(f"Set needs_status_polling=True for instance {instance.instance_id} due to missing API endpoint")
+                            
+                            # Schedule AMI status polling for this instance
+                            schedule_ami_status_polling(instance_id=instance.instance_id)
+                            logger.info(f"Scheduled AMI status polling for instance {instance.instance_id}")
                         else:
                             instance.needs_status_polling = False
                             db.session.commit()
@@ -1104,7 +1173,7 @@ def deploy_lambda_function(instance):
             
             # Wait for role to propagate
             import time
-            time.sleep(10)
+            time.sleep(60)
         
         # Check if lambda_function.py exists, if not create it
         lambda_code_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'lambda_function.py')
@@ -1193,7 +1262,7 @@ def lambda_handler(event, context):
                 {'Key': 'CreatedBy', 'Value': 'AMIVault-Lambda'},
                 {'Key': 'InstanceId', 'Value': instance_id},
                 {'Key': 'InstanceName', 'Value': instance_name},
-                {'Key': 'BackupType', 'Value': 'scheduled'}
+                {'Key': 'BackupType', 'Value': 'eventbridge'}
             ]
         )
         
@@ -1519,6 +1588,88 @@ def reschedule_instance_backup(instance, old_scheduler_type=None):
         logger.warning(f"Could not reschedule backup for {instance.instance_id}: {e}")
         raise
 
+def remove_lambda_function():
+    """Remove Lambda function used for EventBridge targets and update .env file
+    
+    This function removes the Lambda function created for EventBridge targets
+    and updates the .env file to remove the BACKUP_LAMBDA_ARN entry.
+    
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        # Get the Lambda ARN from environment variables
+        lambda_arn = os.environ.get('BACKUP_LAMBDA_ARN', '')
+        if not lambda_arn:
+            logger.info("No Lambda ARN found in environment variables")
+            return True
+        
+        # Parse the Lambda ARN to get region and function name
+        # Format: arn:aws:lambda:region:account-id:function:function-name
+        arn_parts = lambda_arn.split(':')
+        if len(arn_parts) < 7 or arn_parts[2] != 'lambda':
+            logger.warning(f"Invalid Lambda ARN format: {lambda_arn}")
+            return False
+        
+        region = arn_parts[3]
+        function_name = arn_parts[6]
+        
+        # Create a boto3 session with default credentials
+        # This assumes the application has AWS credentials configured
+        boto3_session = boto3.Session(region_name=region)
+        
+        # Create Lambda client
+        lambda_client = boto3_session.client('lambda')
+        
+        # Delete the Lambda function
+        try:
+            lambda_client.delete_function(FunctionName=function_name)
+            logger.info(f"Successfully deleted Lambda function: {function_name}")
+            
+            # Remove the BACKUP_LAMBDA_ARN from .env file
+            remove_env_variable('BACKUP_LAMBDA_ARN')
+            
+            return True
+        except lambda_client.exceptions.ResourceNotFoundException:
+            logger.warning(f"Lambda function {function_name} not found")
+            # Still remove from .env file
+            remove_env_variable('BACKUP_LAMBDA_ARN')
+            return True
+        except Exception as e:
+            logger.error(f"Error deleting Lambda function {function_name}: {e}")
+            return False
+    except Exception as e:
+        logger.error(f"Error removing Lambda function: {e}")
+        return False
+
+def remove_env_variable(key):
+    """Remove a key-value pair from the .env file
+    
+    Args:
+        key: The environment variable key to remove
+    """
+    try:
+        env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
+        
+        # Read the current .env file
+        with open(env_path, 'r') as file:
+            lines = file.readlines()
+        
+        # Filter out the line with the specified key
+        new_lines = [line for line in lines if not line.strip().startswith(f"{key}=")]
+        
+        # Write the updated content back to the .env file
+        with open(env_path, 'w') as file:
+            file.writelines(new_lines)
+        
+        # Remove the environment variable from the current process
+        if key in os.environ:
+            del os.environ[key]
+        
+        logger.info(f"Removed {key} from .env file")
+    except Exception as e:
+        logger.error(f"Failed to remove {key} from .env file: {e}")
+
 def remove_instance_backup_schedule(instance_id, scheduler_type='python'):
     """Remove backup schedule for an instance based on scheduler type"""
     try:
@@ -1549,8 +1700,8 @@ def remove_instance_backup_schedule(instance_id, scheduler_type='python'):
                 events_client = boto3_session.client('events')
                 
                 # Remove targets first
-                rule_name = f"backup-{instance_id}"  # Fixed to match the rule_name in schedule_instance_backup
-                target_id = f"AMIVault-Target-{instance_id}"  # This should also be checked for consistency
+                rule_name = f"AMIVault-Backup-{instance_id}"  # Fixed to match the rule_name in schedule_instance_backup
+                target_id = f"AMIVault-Target-{instance_id}"  # Matches the target_id in schedule_instance_backup
                 
                 try:
                     # Try to remove targets first (required before deleting the rule)
@@ -1581,6 +1732,14 @@ def remove_instance_backup_schedule(instance_id, scheduler_type='python'):
                             # For other errors, log and re-raise
                             logger.error(f"Error deleting EventBridge rule for {instance_id}: {e}")
                             raise
+                    
+                    # Check if this is the last instance using EventBridge
+                    # If so, remove the Lambda function and update .env file
+                    with app.app_context():
+                        eventbridge_instances_count = Instance.query.filter_by(scheduler_type='eventbridge').count()
+                        if eventbridge_instances_count <= 1:  # This instance is being removed or changed
+                            logger.info("This is the last instance using EventBridge, removing Lambda function")
+                            remove_lambda_function()
                     
                     logger.info(f"Removed EventBridge backup schedule for instance {instance_id}")
                     return True
@@ -3833,7 +3992,7 @@ def backup_instance(instance_id):
                 Tags=[
                     {'Key': 'CreatedBy', 'Value': 'AmiVault'},
                     {'Key': 'InstanceName', 'Value': instance_name},
-                    {'Key': 'BackupType', 'Value': 'scheduled'},
+                    {'Key': 'BackupType', 'Value': 'python'},
                     {'Key': 'RetentionDays', 'Value': str(retention_days)}
                 ]
                 # db.session.refresh(backup)
@@ -4547,6 +4706,55 @@ def api_aws_credentials():
     except Exception as e:
         logger.error(f"Error in api_aws_credentials: {e}")
         return jsonify({'error': 'Failed to fetch AWS credentials', 'details': str(e)}), 500
+
+
+@app.route('/api/instances/<instance_id>/poll', methods=['POST'])
+def api_poll_instance(instance_id):
+    """API endpoint to manually trigger AMI status polling for a specific instance"""
+    if 'username' not in session:
+        return jsonify({'success': False, 'error': 'Not authenticated'}), 401
+    
+    try:
+        # Check if instance exists
+        instance = Instance.query.filter_by(instance_id=instance_id).first()
+        if not instance:
+            return jsonify({'success': False, 'error': f'Instance {instance_id} not found'}), 404
+        
+        # Call the polling function directly for this instance
+        logger.info(f"Manual AMI status polling triggered for instance {instance_id}")
+        result = poll_specific_instance(instance_id)
+        
+        return jsonify({
+            'success': True,
+            'message': f'AMI status polling completed for instance {instance_id}',
+            'result': result
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in manual AMI status polling for instance {instance_id}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/poll-all-instances', methods=['POST'])
+def api_poll_all_instances():
+    """API endpoint to manually trigger AMI status polling for all instances"""
+    if 'username' not in session:
+        return jsonify({'success': False, 'error': 'Not authenticated'}), 401
+    
+    try:
+        # Call the polling function directly for all instances
+        logger.info("Manual AMI status polling triggered for all instances")
+        result = poll_all_instances()
+        
+        return jsonify({
+            'success': True,
+            'message': 'AMI status polling completed for all instances',
+            'result': result
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in manual AMI status polling for all instances: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/api/docs')
@@ -5671,7 +5879,7 @@ def perform_backup(instance_id):
         )
         
         # Create AMI
-        ami_name = f"{instance.instance_name}-backup-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}"
+        ami_name = f"{instance.instance_name}_{datetime.now(UTC).strftime('%Y_%m_%d_%I_%M_%p')}_python"
         
         response = ec2_client.create_image(
             InstanceId=instance.instance_id,
@@ -6313,15 +6521,35 @@ def init_app():
             # Get default backup settings from environment variables
             default_backup_frequency = os.environ.get('DEFAULT_BACKUP_FREQUENCY', '0 2 * * *')
             default_retention_days = int(os.environ.get('DEFAULT_RETENTION_DAYS', '7'))
+            default_global_polling = os.environ.get('DEFAULT_GLOBAL_POLLING', '0 * * * *')  # Default hourly polling
+            
+            # If DEFAULT_GLOBAL_POLLING is not in env, set it to default value
+            if 'DEFAULT_GLOBAL_POLLING' not in os.environ:
+                os.environ['DEFAULT_GLOBAL_POLLING'] = default_global_polling
+                logger.info(f"Set DEFAULT_GLOBAL_POLLING environment variable to '{default_global_polling}'")
             
             # Create default backup settings
             default_settings = BackupSettings(
                 backup_frequency=default_backup_frequency,
-                retention_days=default_retention_days
+                retention_days=default_retention_days,
+                global_polling=default_global_polling
             )
             db.session.add(default_settings)
             db.session.commit()
-            logger.info(f"✅ Default backup settings created: frequency='{default_backup_frequency}', retention={default_retention_days} days")
+            logger.info(f"✅ Default backup settings created: frequency='{default_backup_frequency}', retention={default_retention_days} days, global_polling='{default_global_polling}'")
+        else:
+            # Update global_polling from environment variable if needed
+            env_global_polling = os.environ.get('DEFAULT_GLOBAL_POLLING')
+            if env_global_polling and default_settings.global_polling != env_global_polling:
+                default_settings.global_polling = env_global_polling
+                db.session.commit()
+                logger.info(f"✅ Updated global_polling to '{default_settings.global_polling}' from environment variable")
+            elif not default_settings.global_polling:
+                default_global_polling = '0 * * * *'  # Default hourly polling
+                default_settings.global_polling = default_global_polling
+                os.environ['DEFAULT_GLOBAL_POLLING'] = default_global_polling
+                db.session.commit()
+                logger.info(f"✅ Set default global_polling to '{default_global_polling}'")
         
         # Initialize scheduler
         if not scheduler.running:
