@@ -23,6 +23,7 @@ build/
 # Flask instance folder
 instance/
 amivault/
+backups/
 .webassets-cache
 
 # Pytest
@@ -34,6 +35,7 @@ htmlcov/
 .env
 .env.*
 *.env
+.key
 
 # Logs
 *.log

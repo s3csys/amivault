@@ -1,14 +1,33 @@
 import pytest
 import os
 import io
-from app import app, db, User, AWSCredential, Instance, Backup, validate_cron_expression, convert_to_eventbridge_format
-from datetime import datetime, UTC
 import json
 import pyotp
 import csv
+import tempfile
+import shutil
+from app import app, db, User, AWSCredential, Instance, Backup, validate_cron_expression, convert_to_eventbridge_format
+from datetime import datetime, UTC
 from unittest.mock import patch, MagicMock
 from botocore.exceptions import ClientError, NoCredentialsError
 from dotenv import load_dotenv
+from cryptography.fernet import Fernet, InvalidToken
+import bcrypt
+import time
+
+# Import utility functions to test
+from utility_manager import (
+    get_encryption_key,
+    encrypt_value,
+    decrypt_value,
+    encrypt_data,
+    decrypt_data,
+    generate_encryption_key,
+    validate_email,
+    validate_password,
+    get_secure_password,
+    display_logo
+)
 
 # Load environment variables from .env file
 load_dotenv()
@@ -1808,4 +1827,214 @@ def test_convert_to_eventbridge_format_edge_cases():
     # Test the fix for the issue in the logs
     assert convert_to_eventbridge_format("0 4 1 * *") == "cron(0 4 1 * ? *)"
 
-################################################ Event bridge checks ######################################################################
+################################################ utility manager checks ######################################################################
+# Test get_encryption_key function
+def test_get_encryption_key_from_env(mock_env_vars):
+    """Test getting encryption key from environment variable"""
+    key = get_encryption_key()
+    assert key is not None
+    assert len(key) > 0
+    # Verify it's a valid Fernet key
+    fernet = Fernet(key)    
+    assert fernet is not None
+
+@patch('os.path.exists')
+@patch('builtins.open', new_callable=MagicMock)
+def test_get_encryption_key_from_key_file(mock_open, mock_exists, mock_env_vars):
+    """Test getting encryption key from .key file"""
+    # Remove env var to force key file usage
+    if "AMIVAULT_ENCRYPTION_KEY" in os.environ:
+        del os.environ["AMIVAULT_ENCRYPTION_KEY"]
+    
+    # Mock .key file exists
+    mock_exists.return_value = True
+    
+    # Mock file content
+    mock_file = MagicMock()
+    mock_file.__enter__.return_value.read.return_value = Fernet.generate_key()
+    mock_open.return_value = mock_file
+    
+    key = get_encryption_key()
+    assert key is not None
+    assert len(key) > 0
+
+@patch('os.path.exists')
+@patch('uuid.getnode')
+def test_get_encryption_key_generated(mock_getnode, mock_exists, mock_env_vars):
+    """Test generating encryption key when no source is available"""
+    # Remove env var to force generation
+    if "AMIVAULT_ENCRYPTION_KEY" in os.environ:
+        del os.environ["AMIVAULT_ENCRYPTION_KEY"]
+    
+    # Mock file doesn't exist
+    mock_exists.return_value = False
+    
+    # Mock machine ID
+    mock_getnode.return_value = 123456789
+    
+    key = get_encryption_key()
+    assert key is not None
+    assert len(key) > 0
+
+# Test encrypt_value and decrypt_value functions
+def test_encrypt_decrypt_value(mock_env_vars):
+    """Test encrypting and decrypting a value"""
+    original_value = "sensitive_data"
+    encrypted = encrypt_value(original_value)
+    
+    # Verify encrypted value is different from original
+    assert encrypted != original_value
+    
+    # Decrypt and verify
+    decrypted = decrypt_value(encrypted)
+    assert decrypted == original_value
+
+def test_encrypt_decrypt_with_timestamp(mock_env_vars):
+    """Test that encrypted values include a timestamp and can be decrypted"""
+    original_value = "sensitive_data"
+    encrypted = encrypt_value(original_value)
+    
+    # Decrypt and verify
+    decrypted = decrypt_value(encrypted)
+    assert decrypted == original_value
+
+def test_decrypt_expired_value(mock_env_vars):
+    """Test decrypting an expired value"""
+    # Set a very short expiration time
+    os.environ["ENCRYPTION_MAX_AGE_DAYS"] = "0"
+    
+    original_value = "sensitive_data"
+    encrypted = encrypt_value(original_value)
+    
+    # Sleep to ensure it's expired
+    time.sleep(1)
+    
+    # Should raise an exception for expired data
+    with pytest.raises(ValueError, match="Encrypted data has expired"):
+        decrypt_value(encrypted)
+
+def test_decrypt_invalid_value(mock_env_vars):
+    """Test decrypting an invalid value"""
+    with pytest.raises(InvalidToken):
+        decrypt_value("invalid_encrypted_value")
+
+# Test encrypt_data and decrypt_data functions
+def test_encrypt_decrypt_data_string(mock_env_vars):
+    """Test encrypting and decrypting string data"""
+    original_data = "sensitive_string"
+    encrypted = encrypt_data(original_data)
+    
+    # Verify encrypted data is different
+    assert encrypted != original_data
+    
+    # Decrypt and verify
+    decrypted = decrypt_data(encrypted)
+    assert decrypted == original_data
+
+# Test display_logo function
+@patch('os.get_terminal_size')
+def test_display_logo(mock_terminal_size):
+    """Test the display_logo function"""
+    # Mock terminal size
+    mock_terminal_size.return_value = MagicMock(columns=100)
+    
+    # Capture stdout to verify output
+    captured_output = io.StringIO()
+    import sys
+    original_stdout = sys.stdout
+    sys.stdout = captured_output
+    
+    try:
+        # Call the function
+        display_logo()
+        
+        # Get the output
+        output = captured_output.getvalue()
+        
+        # Verify the output contains expected elements
+        assert "AMIVault" in output
+        assert "v1.0.0" in output
+        assert "Enterprise-Grade AWS AMI Backup Management Solution" in output
+        assert "Secure • Reliable • Scalable" in output
+        
+        # Verify the border characters are present
+        assert "╔" in output
+        assert "╗" in output
+        assert "╚" in output
+        assert "╝" in output
+    finally:
+        # Restore stdout
+        sys.stdout = original_stdout
+
+def test_encrypt_decrypt_data_dict(mock_env_vars):
+    """Test encrypting and decrypting dictionary data"""
+    original_data = {
+        "username": "test_user",
+        "password": "secret_password",
+        "api_key": "sensitive_api_key"
+    }
+    
+    encrypted = encrypt_data(original_data)
+    
+    # Verify sensitive fields are encrypted
+    assert encrypted["username"] == original_data["username"]  # Not sensitive
+    assert encrypted["password"] != original_data["password"]  # Sensitive
+    assert encrypted["api_key"] != original_data["api_key"]  # Sensitive
+    
+    # Decrypt and verify
+    decrypted = decrypt_data(encrypted)
+    assert decrypted == original_data
+
+# Test generate_encryption_key function
+@patch('builtins.open', new_callable=MagicMock)
+@patch('os.path.exists')
+def test_generate_encryption_key(mock_exists, mock_open, mock_env_vars):
+    """Test generating a new encryption key"""
+    # Mock .env file exists
+    mock_exists.return_value = True
+    
+    # Mock file operations
+    mock_file = MagicMock()
+    mock_file.__enter__.return_value.read.return_value = "SOME_VAR=value\nAMIVAULT_ENCRYPTION_KEY=old_key\n"
+    mock_open.return_value = mock_file
+    
+    # Generate new key
+    result = generate_encryption_key()
+    
+    # Verify result
+    assert result is True
+    
+    # Verify file was written with new key
+    assert mock_file.__enter__.return_value.write.called
+
+# Test validation functions
+def test_validate_email():
+    """Test email validation"""
+    # Valid emails
+    assert validate_email("user@example.com") is True
+    assert validate_email("user.name@example.co.uk") is True
+    
+    # Invalid emails
+    assert validate_email("user@") is False
+    assert validate_email("user@.com") is False
+    assert validate_email("@example.com") is False
+
+def test_validate_password():
+    """Test password validation"""
+    # Valid passwords
+    assert validate_password("Password123!") is True
+    assert validate_password("Secure_Password_2023") is True
+    
+    # Invalid passwords
+    assert validate_password("short") is False  # Too short
+    assert validate_password("lowercase123") is False  # No uppercase
+    assert validate_password("UPPERCASE123") is False  # No lowercase
+    assert validate_password("Password!@#") is False  # No numbers
+
+def test_get_secure_password():
+    """Test secure password generation"""
+    password = get_secure_password()
+    
+    # Verify password meets requirements
+    assert len(password) >= 12
+    assert validate_password(password) is True
