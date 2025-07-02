@@ -2,29 +2,39 @@ pipeline {
     agent {
         label 'secsys'
     }
+
+    parameters {
+        string(name: 'BRANCH', defaultValue: 'dev', description: 'Git branch to build')
+    }
+
     environment {
-        
+        GIT_REPO = 'https://github.com/s3csys/amivault.git'
+        DISCORD_WEBHOOK_URL = credentials('discord-webhook-url')
+        VENV_DIR = 'venv'
+        DEPLOY_DIR = credentials('amivault_path')
+        pass = credentials('amivault_pass')
     }
-    triggers {
-        pollSCM('H/2 * * * *')  
-    }
+
     stages {
-        stage('Clone') {
+        stage('Checkout') {
             steps {
-                git url: 'https://github.com/s3csys/amivault.git', branch: 'main'
+                echo "Cloning ${GIT_REPO} repo branch ${params.BRANCH} for deployment"
+                git branch: "${params.BRANCH}", url: "${GIT_REPO}"
             }
         }
 
         stage('Set Up VENV') {
             steps {
-                sh 'python3 -m venv ${VENV_DIR}'
+                sh 'python3 -m venv "${VENV_DIR}"'
             }
         }
 
-        stage('Dependicies') {
+        stage('Install Dependencies') {
             steps {
                 sh '''
-                    source ${VENV_DIR}/bin/activate
+                    set -e
+                    . "${VENV_DIR}/bin/activate"
+                    pip install --upgrade pip
                     pip install -r requirements.txt
                 '''
             }
@@ -33,40 +43,130 @@ pipeline {
         stage('Test') {
             steps {
                 sh '''
-                    source ${VENV_DIR}/bin/activate
-                    pytest test_app.py --junitxml=test-results.xml
+                    set -e
+                    . "${VENV_DIR}/bin/activate"
+                    pytest --cov=app --cov-report=term-missing --cov-fail-under=80 --junitxml=test-results.xml test_app.py
                 '''
             }
         }
 
-        stage('Deployment') {
-            steps{
-                sshagent([]) {
-                    sh '''
-                    ssh -o StrictHostKeyChecking=no root@20.20.20.25 << EOf
-                    python3 -m venv ${VENV_DIR}
-                    source ${VENV_DIR}/bin/activate
-                    python3 helper.py --recreate-db
-                    python3 
-                    EOF
-                    '''
-                }
+        stage('Deploy') {
+            steps {
+                sh '''
+                    set -e
+                    echo "Deploying ${BRANCH} branch to ${DEPLOY_DIR}"
+                    rm -rf "$WORKSPACE/instance"
+                    rsync -laz "$WORKSPACE/" "${DEPLOY_DIR}/"
+                    echo "Deployment of ${BRANCH} branch to ${DEPLOY_DIR} completed"
+                '''
+            }
+        }
+
+        stage('Start') {
+            steps {
+                sh '''
+                    set -e
+                    . "${VENV_DIR}/bin/activate"
+                    cp .env-sample .env
+                    sed -i "s/your_secure_password/${pass}/g" .env
+                    
+                    nohup python app.py &
+                '''
             }
         }
     }
 
     post {
-        always {
-            // Clean up workspace
-            cleanWs()
-        }
         success {
-            // Notify success
-            echo "Deployment successful. The APIVAULT is available at http://${SERVER_IP}:${FLASK_APP_PORT}/"
+            script {
+                def deployEnv = ''
+                def deployDetails = ''
+                def deployTime = new Date().format('yyyy-MM-dd HH:mm:ss')
+
+                switch (params.BRANCH) {
+                    case 'dev':
+                        deployEnv = 'Dev'; break
+                    case 'staging':
+                        deployEnv = 'Staging'; break
+                    case 'main':
+                        deployEnv = 'Production'; break
+                }
+
+                deployDetails = "Branch: ${params.BRANCH}\nDeployment Directory: ${DEPLOY_DIR}"
+
+                if (deployEnv) {
+                    try {
+                        discordSend(
+                            webhookURL: DISCORD_WEBHOOK_URL,
+                            title: "✅ Amivault ${deployEnv} Deployment - SUCCESS",
+                            description: "${deployEnv} deployment completed successfully\n\n**Details:**\n${deployDetails}",
+                            footer: "Build: #${BUILD_NUMBER} | ${deployTime}",
+                            link: BUILD_URL,
+                            result: currentBuild.currentResult,
+                            thumbnail: "https://jenkins.io/images/logos/jenkins/jenkins.png",
+                            customUsername: "Jenkins Amivault Pipeline"
+                        )
+                    } catch (Exception e) {
+                        echo "Warning: Could not send Discord notification: ${e.message}"
+                    }
+                }
+            }
         }
+
         failure {
-            // Notify failure
-            echo 'Deployment failed!'
+            script {
+                def deployEnv = ''
+                def deployTime = new Date().format('yyyy-MM-dd HH:mm:ss')
+
+                switch (params.BRANCH) {
+                    case 'dev':
+                        deployEnv = 'Dev'; break
+                    case 'staging':
+                        deployEnv = 'Staging'; break
+                    case 'main':
+                        deployEnv = 'Production'; break
+                }
+
+                if (deployEnv) {
+                    try {
+                        discordSend(
+                            webhookURL: DISCORD_WEBHOOK_URL,
+                            title: "❌ Amivault ${deployEnv} Deployment - FAILED",
+                            description: "${deployEnv} deployment failed!\n\n**Branch:** ${params.BRANCH}\nCheck build logs for more info.",
+                            footer: "Build: #${BUILD_NUMBER} | ${deployTime}",
+                            link: BUILD_URL,
+                            result: currentBuild.currentResult,
+                            thumbnail: "https://jenkins.io/images/logos/jenkins/jenkins.png",
+                            customUsername: "Jenkins Amivault Pipeline"
+                        )
+                    } catch (Exception e) {
+                        echo "Warning: Could not send Discord notification: ${e.message}"
+                    }
+                }
+            }
+        }
+
+        always {
+            echo 'Performing cleanup operations...'
+            cleanWs()
+            echo 'Cleanup completed successfully.'
+
+            script {
+                try {
+                    discordSend(
+                        webhookURL: DISCORD_WEBHOOK_URL,
+                        title: "Amivault Pipeline - Build #${BUILD_NUMBER} Complete",
+                        description: "Build completed with result: ${currentBuild.currentResult}\nTotal execution time: ${currentBuild.durationString}",
+                        footer: new Date().format('yyyy-MM-dd HH:mm:ss'),
+                        link: BUILD_URL,
+                        result: currentBuild.currentResult,
+                        thumbnail: "https://jenkins.io/images/logos/jenkins/jenkins.png",
+                        customUsername: "Jenkins Amivault Pipeline"
+                    )
+                } catch (Exception e) {
+                    echo "Warning: Could not send Discord notification: ${e.message}"
+                }
+            }
         }
     }
 }
