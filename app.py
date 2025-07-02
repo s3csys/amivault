@@ -1,5 +1,5 @@
 # Keep or add these imports
-import pyotp, qrcode, io, base64, boto3, pytz, os, csv, secrets, logging, json, time
+import pyotp, qrcode, io, base64, boto3, pytz, os, csv, secrets, logging, json, time, jwt
 from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify, send_file, make_response
 from dotenv import load_dotenv
 from datetime import datetime, timezone, timedelta, UTC
@@ -8,6 +8,7 @@ from io import StringIO
 from botocore.exceptions import ClientError, NoCredentialsError
 from models import db, User, Instance, BackupSettings, Backup, AWSCredential
 from lambda_callback import lambda_callback
+from functools import wraps
 
 # Monkeypatch dateutil and pytz to fix deprecation warnings
 import dateutil.tz.tz
@@ -177,6 +178,99 @@ scheduler.init_app(app)
 
 # Register blueprints
 app.register_blueprint(lambda_callback)
+
+def generate_jwt_token(user_id, username, expiration=24):
+    """Generate a JWT token for API authentication"""
+    payload = {
+        'user_id': user_id,
+        'username': username,
+        'exp': datetime.now(UTC) + timedelta(hours=expiration),
+        'iat': datetime.now(UTC)
+    }
+    return jwt.encode(payload, app.config['SECRET_KEY'], algorithm='HS256')
+
+def decode_jwt_token(token):
+    """Decode and validate a JWT token"""
+    try:
+        return jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
+    except jwt.ExpiredSignatureError:
+        return None  # Token has expired
+    except jwt.InvalidTokenError:
+        return None  # Invalid token
+
+# def token_required(f):
+    """Decorator for API endpoints that require JWT authentication"""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        # Check for API key in .env file first (for task 5)
+        api_key = os.environ.get('API_KEY')
+        request_api_key = request.headers.get('X-API-Key')
+        
+        if api_key and request_api_key and api_key == request_api_key:
+            # API key authentication successful
+            # Set a default admin user for API key auth
+            user = User.query.filter_by(username='admin').first()
+            if user:
+                return f(user, *args, **kwargs)
+        
+        # If API key auth failed, try JWT token
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'error': 'Missing or invalid authorization header'}), 401
+        
+        token = auth_header.split(' ')[1]
+        payload = decode_jwt_token(token)
+        
+        if not payload:
+            return jsonify({'error': 'Invalid or expired token'}), 401
+        
+        user = User.query.filter_by(username=payload['username']).first()
+        if not user:
+            return jsonify({'error': 'User not found'}), 401
+            
+        return f(user, *args, **kwargs)
+    
+    return decorated
+
+def token_required(f):
+    """Decorator for API endpoints that support API key, JWT, or session authentication."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        # 1. Session-based authentication
+        username = session.get('username')
+        if username:
+            user = User.query.filter_by(username=username).first()
+            if user:
+                return f(user, *args, **kwargs)
+
+        # 2. API Key authentication
+        api_key = os.environ.get('API_KEY')
+        request_api_key = request.headers.get('X-API-Key')
+        
+        if api_key and request_api_key and api_key == request_api_key:
+            user = User.query.filter_by(username='admin').first()
+            if user:
+                return f(user, *args, **kwargs)
+
+        # 3. JWT Bearer token authentication
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'error': 'Missing or invalid authorization header'}), 401
+        
+        token = auth_header.split(' ')[1]
+        payload = decode_jwt_token(token)
+        
+        if not payload:
+            return jsonify({'error': 'Invalid or expired token'}), 401
+        
+        user = User.query.filter_by(username=payload['username']).first()
+        if not user:
+            return jsonify({'error': 'User not found'}), 401
+
+        return f(user, *args, **kwargs)
+
+    return decorated
+
 
 def parse_cron_expression(cron_str):
     """Parse a cron expression into kwargs for APScheduler"""
@@ -4150,12 +4244,64 @@ def search_suggestions():
         return jsonify([])
 
 
-@app.route('/api/instances')
-def api_instances():
-    """API endpoint to get instance list"""
-    if 'username' not in session:
-        return jsonify({'error': 'Not authenticated'}), 401
+@app.route('/api/login', methods=['POST'])
+def api_login():
+    """API endpoint for user authentication and JWT token generation"""
+    if not request.is_json:
+        return jsonify({'error': 'Missing JSON data'}), 400
     
+    data = request.get_json()
+    username = data.get('username', '').strip()
+    password = data.get('password', '')
+    
+    if not username or not password:
+        return jsonify({'error': 'Username and password are required'}), 400
+    
+    # Check if user exists and is active
+    user = User.query.filter_by(username=username).first()
+    
+    if not user or not user.is_active:
+        return jsonify({'error': 'Invalid username or password'}), 401
+    
+    # Verify password
+    if not user.check_password(password):
+        return jsonify({'error': 'Invalid username or password'}), 401
+    
+    # Check if 2FA is enabled
+    if user.two_factor_enabled and user.two_factor_secret:
+        # If 2FA is enabled, require a code
+        code = data.get('code')
+        if not code:
+            return jsonify({
+                'require_2fa': True,
+                'message': 'Two-factor authentication code required'
+            }), 200
+        
+        # Verify 2FA code
+        totp = pyotp.TOTP(user.two_factor_secret)
+        if not totp.verify(code, valid_window=1):
+            return jsonify({'error': 'Invalid 2FA code'}), 401
+    
+    # Generate JWT token
+    token = generate_jwt_token(user.id, user.username)
+    
+    # Update last login timestamp
+    user.update_last_login()
+    
+    return jsonify({
+        'token': token,
+        'user': {
+            'id': user.id,
+            'username': user.username,
+            'email': user.email
+        },
+        'expires_in': 86400  # 24 hours in seconds
+    })
+
+@app.route('/api/instances')
+@token_required
+def api_instances(current_user):
+    """API endpoint to get instance list"""
     try:
         instances = Instance.query.filter_by(is_active=True).all()
         return jsonify([{
@@ -4171,33 +4317,29 @@ def api_instances():
 
 
 @app.route('/api/amis')
-def api_amis():
-    """API endpoint to get AMI list for selected instances"""
-    if 'username' not in session:
-        return jsonify({'error': 'Not authenticated'}), 401
-    
+@token_required
+def api_amis(current_user):
+    """API endpoint to get AMIs for selected instances"""
     try:
-        # Get instance IDs from query parameters
-        instance_ids = request.args.get('instances', '')
+        # Get query parameters
+        instances_param = request.args.get('instances', '')
         
-        # Handle both comma-separated string and empty case
-        if instance_ids:
-            instance_ids = [id.strip() for id in instance_ids.split(',') if id.strip()]
+        # Parse instance IDs
+        if instances_param:
+            instance_ids = [id.strip() for id in instances_param.split(',')]
         else:
-            # If no instances specified, get all instances
-            instances = Instance.query.filter_by(is_active=True).all()
-            instance_ids = [inst.instance_id for inst in instances]
+            instance_ids = []
         
-        if not instance_ids:
-            return jsonify([])
+        # Build query
+        query = Backup.query.filter(Backup.ami_id.isnot(None))
         
-        # Query backups with valid AMI IDs for the specified instances
-        backups = Backup.query.filter(
-            Backup.instance_id.in_(instance_ids),
-            Backup.ami_id.isnot(None)
-        ).order_by(Backup.timestamp.desc()).all()
+        if instance_ids:
+            query = query.filter(Backup.instance_id.in_(instance_ids))
         
-        # Format the response
+        # Get results
+        backups = query.order_by(Backup.timestamp.desc()).all()
+        
+        # Format response
         result = [{
             'ami_id': backup.ami_id,
             'instance_name': backup.instance_name or (backup.instance_ref.instance_name if backup.instance_ref else 'Unknown'),
@@ -4821,6 +4963,22 @@ def api_docs():
             'response': 'Array of instance objects with instance_id, instance_name, region, and created_at'
         },
         {
+            'endpoint': '/api/instances/<instance_id>/poll',
+            'method': 'POST',
+            'description': 'Manually trigger AMI status polling for a specific instance',
+            'parameters': [
+                {'name': 'instance_id', 'type': 'string', 'description': 'ID of the instance to poll'}
+            ],
+            'response': 'Object with success status, message, and polling result'
+        },
+        {
+            'endpoint': '/api/poll-all-instances',
+            'method': 'POST',
+            'description': 'Manually trigger AMI status polling for all instances',
+            'parameters': [],
+            'response': 'Object with success status, message, and polling result'
+        },
+        {
             'endpoint': '/api/amis',
             'method': 'GET',
             'description': 'Get list of AMIs for selected instances',
@@ -4863,6 +5021,13 @@ def api_docs():
             'description': 'Get AWS credentials (admin sees all, users see only their own)',
             'parameters': [],
             'response': 'Array of credential objects (without actual keys)'
+        },
+        {
+            'endpoint': '/api/schedules/refresh',
+            'method': 'GET',
+            'description': 'Refresh schedule data for AJAX calls',
+            'parameters': [],
+            'response': 'Object with scheduled instances, EventBridge rules, and current time information'
         },
         {
             'endpoint': '/bulk-delete-amis',

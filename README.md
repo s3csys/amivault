@@ -310,7 +310,7 @@ API_GATEWAY_ENDPOINT=
 
 ```bash
 # Create database tables
-python helper.py --recreate-db
+python utility_manager.py --recreate-db
 ```
 </details>
 
@@ -521,7 +521,7 @@ A Dockerfile is included for containerized deployment:
 docker build -t amivault .
 
 # Run the container
-docker run -d -p 8080:8080 --name amivault-app amivault
+docker run -d -p 5000:5000 --name amivault-app amivault
 ```
 
 ### Production Considerations
@@ -574,8 +574,8 @@ AMIVault provides a comprehensive RESTful API for seamless integration with othe
 
 ### API Overview
 
-[![API Documentation](https://img.shields.io/badge/API_Docs-Available-success.svg)](http://localhost:8080/api/docs)
-[![API Version](https://img.shields.io/badge/API_Version-v1-blue.svg)](http://localhost:8080/api/docs)
+[![API Documentation](https://img.shields.io/badge/API_Docs-Available-success.svg)](http://localhost:5000/api/docs)
+[![API Version](https://img.shields.io/badge/API_Version-v1-blue.svg)](http://localhost:5000/api/docs)
 
 </div>
 
@@ -583,70 +583,73 @@ AMIVault provides a comprehensive RESTful API for seamless integration with othe
 
 <table>
   <tr>
-    <th>Category</th>
     <th>Endpoint</th>
     <th>Method</th>
     <th>Description</th>
     <th>Authentication</th>
   </tr>
   <tr>
-    <td rowspan="1">Authentication</td>
-    <td><code>/api/login</code></td>
+    <td>/api/login</td>
     <td>POST</td>
     <td>Authenticate and receive access token</td>
-    <td>None</td>
+    <td>Not Required</td>
   </tr>
   <tr>
-    <td rowspan="1">Instances</td>
-    <td><code>/api/instances</code></td>
+    <td>/api/instances</td>
     <td>GET</td>
-    <td>List all EC2 instances</td>
+    <td>Get list of all instances</td>
     <td>Required</td>
   </tr>
   <tr>
-    <td rowspan="1">AMIs</td>
-    <td><code>/api/amis</code></td>
-    <td>GET</td>
-    <td>List all AMIs</td>
+    <td>/api/instances/{instance_id}/poll</td>
+    <td>POST</td>
+    <td>Manually trigger AMI status polling for a specific instance</td>
     <td>Required</td>
   </tr>
   <tr>
-    <td rowspan="2">Backups</td>
-    <td><code>/api/backups</code></td>
-    <td>GET</td>
-    <td>List all backups</td>
+    <td>/api/poll-all-instances</td>
+    <td>POST</td>
+    <td>Manually trigger AMI status polling for all instances</td>
     <td>Required</td>
   </tr>
   <tr>
-    <td><code>/api/backup/&lt;backup_id&gt;</code></td>
+    <td>/api/amis</td>
     <td>GET</td>
-    <td>Get details for a specific backup</td>
+    <td>Get list of AMIs for selected instances</td>
     <td>Required</td>
   </tr>
   <tr>
-    <td rowspan="1">Settings</td>
-    <td><code>/api/backup-settings</code></td>
+    <td>/api/backups</td>
     <td>GET</td>
-    <td>Get backup configuration settings</td>
+    <td>Get list of all backups with pagination</td>
     <td>Required</td>
   </tr>
   <tr>
-    <td rowspan="1">Credentials</td>
-    <td><code>/api/aws-credentials</code></td>
+    <td>/api/backup/{backup_id}</td>
     <td>GET</td>
-    <td>List stored AWS credentials</td>
+    <td>Get details of a specific backup</td>
     <td>Required</td>
   </tr>
   <tr>
-    <td rowspan="1">Schedules</td>
-    <td><code>/api/schedules/refresh</code></td>
+    <td>/api/backup-settings</td>
     <td>GET</td>
-    <td>Refresh backup schedules</td>
+    <td>Get global backup settings</td>
     <td>Required</td>
   </tr>
   <tr>
-    <td rowspan="1">Documentation</td>
-    <td><code>/api/docs</code></td>
+    <td>/api/aws-credentials</td>
+    <td>GET</td>
+    <td>Get AWS credentials (admin sees all, users see only their own)</td>
+    <td>Required</td>
+  </tr>
+  <tr>
+    <td>/api/schedules/refresh</td>
+    <td>GET</td>
+    <td>Refresh schedule data for AJAX calls</td>
+    <td>Required</td>
+  </tr>
+  <tr>
+    <td>/api/docs</td>
     <td>GET</td>
     <td>Interactive API documentation</td>
     <td>Required</td>
@@ -655,13 +658,70 @@ AMIVault provides a comprehensive RESTful API for seamless integration with othe
 
 ### Authentication
 
-All API endpoints (except `/api/login`) require authentication using a JWT token.
+All API endpoints (except `/api/login`) require authentication using a JWT token or API key.
+
+#### JWT Authentication
 
 ```http
 GET /api/instances HTTP/1.1
 Host: localhost:8080
 Authorization: Bearer <your_jwt_token>
 Content-Type: application/json
+```
+
+API Key Authentication (Alternative)
+
+```http
+GET /api/instances HTTP/1.1
+Host: localhost:8080
+X-API-Key: <your_api_key>
+Content-Type: application/json
+```
+
+#### ### Getting a JWT Token
+To get a JWT token, make a POST request to the /api/login endpoint:
+
+```bash
+curl -X POST http://$IP:8080/api/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"your_password"}'
+```
+Response:
+
+```json
+{
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "user": {
+    "id": 1,
+    "username": "admin",
+    "email": "admin@example.com"
+  },
+  "expires_in": 86400
+}
+```
+
+Then use the token in subsequent API requests:
+
+```bash
+curl -X GET http://$IP:8080/api/instances \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+#### API Key Authentication
+
+Alternatively, you can set an API key in your `.env` file:
+
+```
+# .env
+API_KEY=your_secure_api_key
+```
+
+#### Using API Key
+To use the API key, include it in the request headers:
+
+```bash
+curl -X GET http://$IP:5000/api/instances \
+  -H "X-API-Key: your_secure_api_key"
 ```
 
 ### Interactive Documentation
