@@ -45,7 +45,7 @@ pipeline {
                     set -e
                     . "${VENV_DIR}/bin/activate"
                     python3 utility_manager.py --setup-env
-                    pytest --cov=app --cov-report=term-missing --junitxml=test-results.xml test_app.py -v
+                    pytest test_app.py -v --junitxml=reports/test-results.xml --cov=app --cov-report=xml
                 '''
             }
         }
@@ -56,7 +56,7 @@ pipeline {
                     set -e
                     echo "Deploying ${BRANCH} branch to ${DEPLOY_DIR}"
                     rm -rf "$WORKSPACE/instance"
-                    rsync -laz "$WORKSPACE/" "${DEPLOY_DIR}/"
+                    rsync -rlptD --no-group --no-perms --no-owner "$WORKSPACE/" "/home/amivault/htdocs/amivault.secsys.site/"
                     echo "Deployment of ${BRANCH} branch to ${DEPLOY_DIR} completed"
                 '''
             }
