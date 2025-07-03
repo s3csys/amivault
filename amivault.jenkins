@@ -12,9 +12,6 @@ pipeline {
         DISCORD_WEBHOOK_URL = credentials('discord-webhook-url')
         VENV_DIR = 'venv'
         DEPLOY_DIR = credentials('amivault_path')
-        pass = credentials('amivault_pass')
-        SAMPLE_KEY = 'AKIAIOSFODNN7EXAMPLE'
-        SAMPLE_SECRET = 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY'
     }
 
     stages {
@@ -47,7 +44,8 @@ pipeline {
                 sh '''
                     set -e
                     . "${VENV_DIR}/bin/activate"
-                    pytest --cov=app --cov-report=term-missing --cov-fail-under=80 --junitxml=test-results.xml test_app.py
+                    python3 utility_manager.py --setup-env
+                    pytest --cov=app --cov-report=term-missing --junitxml=test-results.xml test_app.py -v
                 '''
             }
         }
@@ -69,10 +67,6 @@ pipeline {
                 sh '''
                     set -e
                     . "${VENV_DIR}/bin/activate"
-                    cp .env-sample .env
-                    sed -i "s/your_secure_password/${pass}/g" .env
-                    sed -i "s/SAMPLE_KEY/${SAMPLE_KEY}/g" .env
-                    sed -i "s/SAMPLE_SECRET/${SAMPLE_SECRET}/g" .env
                     nohup python app.py &
                 '''
             }

@@ -15,6 +15,7 @@ Usage:
     python utility_manager.py --backup-config          - Backup system configuration and credentials (encrypted)
     python utility_manager.py --restore-config         - Restore system configuration
     python utility_manager.py --version                - Display version information
+    python utility_manager.py --set-env               - Set up environment by creating .env file with secure random values
     python utility_manager.py username password email  - Create/update a user non-interactively
 
 For more information, visit: https://github.com/s3csys/amivault
@@ -29,6 +30,7 @@ import json
 import shutil
 import datetime
 import logging
+import random
 from pathlib import Path
 from datetime import datetime
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -1348,6 +1350,7 @@ def show_help():
     print("  python utility_manager.py --check-system           - Check system health and configuration")
     print("  python utility_manager.py --backup-config          - Backup system configuration and credentials (encrypted)")
     print("  python utility_manager.py --restore-config         - Restore system configuration (WARNING: may overwrite existing data)")
+    print("  python utility_manager.py --setup-env              - Set up environment from .env-sample with secure random values")
     print("  python utility_manager.py --generate-key           - Generate a new encryption key")
     print("  python utility_manager.py --version                - Display version information")
     print("  python utility_manager.py username password email  - Create/update a user non-interactively")
@@ -1361,10 +1364,10 @@ def main():
     print("=" * 40)
     
     while True:
-        print("\nOptions:")
-        print("1. Create new admin user")
+        print("\n📋 AMIVault Administration Menu")
+        print("1. Create admin user")
         print("2. Create custom user")
-        print("3. List all users")
+        print("3. List users")
         print("4. Delete user")
         print("5. Recreate database (⚠️  DANGER ZONE)")
         print("6. Check system health")
@@ -1372,9 +1375,10 @@ def main():
         print("8. Restore configuration")
         print("9. Generate new encryption key")
         print("10. Show version information")
+        print("11. Set up environment (.env file)")
         print("0. Exit")
         
-        choice = input("\nSelect option (0-10): ").strip()
+        choice = input("\nSelect option (0-11): ").strip()
         
         if choice == '1':
             # Create admin user with default username
@@ -1435,6 +1439,10 @@ def main():
             generate_encryption_key()
             
         elif choice == '10':
+            # Set up environment from .env-sample
+            setup_env()
+            
+        elif choice == '11':
             # Show version information
             show_version()
         
@@ -1444,6 +1452,105 @@ def main():
         
         else:
             print("❌ Invalid option. Please try again.")
+
+def setup_env():
+    """
+    Set up the environment by copying .env-sample to .env and generating random values for placeholders.
+    This utility will replace the following placeholders with secure random values:
+    - SECRET_KEY
+    - API_KEY
+    - AMIVAULT_ENCRYPTION_KEY
+    - AWS_ACCESS_KEY_ID
+    - AWS_SECRET_ACCESS_KEY
+    - ADMIN_PASSWORD
+    """
+    env_sample_path = ".env-sample"
+    env_path = ".env"
+    
+    # Check if .env-sample exists
+    if not os.path.exists(env_sample_path):
+        print(f"❌ Error: {env_sample_path} file not found.")
+        return False
+    
+    # Check if .env already exists
+    if os.path.exists(env_path):
+        overwrite = input(f"⚠️  Warning: {env_path} already exists. Overwrite? (y/N): ").lower().strip()
+        if overwrite not in ['y', 'yes']:
+            print("❌ Setup cancelled.")
+            return False
+    
+    try:
+        # Read the .env-sample file
+        with open(env_sample_path, 'r') as f:
+            env_content = f.read()
+        
+        # Generate random values
+        secret_key = secrets.token_hex(32)  # 64 character hex string
+        api_key = secrets.token_urlsafe(32)  # ~43 character URL-safe base64 string
+        
+        # Generate a proper Fernet encryption key
+        encryption_key = Fernet.generate_key().decode() if ENCRYPTION_AVAILABLE else "PLACEHOLDER_ENCRYPTION_KEY"
+        
+        # Generate AWS credentials
+        aws_access_key = ''.join(secrets.choice('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789') for _ in range(20))
+        aws_secret_key = secrets.token_hex(30)  # 60 character hex string
+        
+        # Generate admin password
+        admin_password = generate_strong_password()
+        
+        # Replace placeholders
+        env_content = env_content.replace("your_secure_secret_key", secret_key)
+        env_content = env_content.replace("your_secure_api_key_here", api_key)
+        env_content = env_content.replace("K9NtvfGj9oc-YBqT-jsylu5_SuLCKOB08ZYwV4Hg8rs=", encryption_key)
+        env_content = env_content.replace("SAMPLE_KEY", aws_access_key)
+        env_content = env_content.replace("SAMPLE_SECRET", aws_secret_key)
+        env_content = env_content.replace("your_secure_password", admin_password)
+        
+        # Write the new .env file
+        with open(env_path, 'w') as f:
+            f.write(env_content)
+        
+        print(f"✅ Environment file created successfully at {env_path}")
+        print("\n⚠️  IMPORTANT: Keep these credentials secure!")
+        print(f"SECRET_KEY: {secret_key}")
+        print(f"API_KEY: {api_key}")
+        print(f"AMIVAULT_ENCRYPTION_KEY: {encryption_key}")
+        print(f"AWS_ACCESS_KEY_ID: {aws_access_key}")
+        print(f"AWS_SECRET_ACCESS_KEY: {aws_secret_key}")
+        print(f"ADMIN_PASSWORD: {admin_password}")
+        
+        return True
+    except Exception as e:
+        print(f"❌ Error setting up environment: {e}")
+        logger.error(f"Error setting up environment: {e}")
+        return False
+
+def generate_strong_password(length=16):
+    """
+    Generate a strong random password with mixed case, numbers and special characters.
+    """
+    # Character sets
+    lowercase = 'abcdefghijklmnopqrstuvwxyz'
+    uppercase = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+    numbers = '0123456789'
+    special = '!@#$%^&*()_+-=[]{}|;:,.<>?'
+    
+    # Ensure at least one of each type
+    password = [
+        secrets.choice(lowercase),
+        secrets.choice(uppercase),
+        secrets.choice(numbers),
+        secrets.choice(special)
+    ]
+    
+    # Fill the rest with random characters from all sets
+    all_chars = lowercase + uppercase + numbers + special
+    password.extend(secrets.choice(all_chars) for _ in range(length - 4))
+    
+    # Shuffle the password characters
+    random.shuffle(password)
+    
+    return ''.join(password)
 
 if __name__ == "__main__":
     # Note: We've already suppressed logs during the import of app.py above
@@ -1482,6 +1589,14 @@ if __name__ == "__main__":
             # Usage: python helper.py --restore-config
             display_logo()
             restore_config()
+        elif arg == '--setup-env':
+            # Usage: python helper.py --setup-env
+            display_logo()
+            setup_env()
+        elif arg == '--set-env':
+            # Usage: python helper.py --set-env
+            display_logo()
+            setup_env()
         elif arg == '--version':
             # Usage: python helper.py --version
             display_logo()
@@ -1500,6 +1615,105 @@ if __name__ == "__main__":
         # Interactive mode
         main()
 
+
+def setup_env():
+    """
+    Set up the environment by copying .env-sample to .env and generating random values for placeholders.
+    This utility will replace the following placeholders with secure random values:
+    - SECRET_KEY
+    - API_KEY
+    - AMIVAULT_ENCRYPTION_KEY
+    - AWS_ACCESS_KEY_ID
+    - AWS_SECRET_ACCESS_KEY
+    - ADMIN_PASSWORD
+    """
+    env_sample_path = ".env-sample"
+    env_path = ".env"
+    
+    # Check if .env-sample exists
+    if not os.path.exists(env_sample_path):
+        print(f"❌ Error: {env_sample_path} file not found.")
+        return False
+    
+    # Check if .env already exists
+    if os.path.exists(env_path):
+        overwrite = input(f"⚠️  Warning: {env_path} already exists. Overwrite? (y/N): ").lower().strip()
+        if overwrite not in ['y', 'yes']:
+            print("❌ Setup cancelled.")
+            return False
+    
+    try:
+        # Read the .env-sample file
+        with open(env_sample_path, 'r') as f:
+            env_content = f.read()
+        
+        # Generate random values
+        secret_key = secrets.token_hex(32)  # 64 character hex string
+        api_key = secrets.token_urlsafe(32)  # ~43 character URL-safe base64 string
+        
+        # Generate a proper Fernet encryption key
+        encryption_key = Fernet.generate_key().decode() if ENCRYPTION_AVAILABLE else "PLACEHOLDER_ENCRYPTION_KEY"
+        
+        # Generate AWS credentials
+        aws_access_key = ''.join(secrets.choice('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789') for _ in range(20))
+        aws_secret_key = secrets.token_hex(30)  # 60 character hex string
+        
+        # Generate admin password
+        admin_password = generate_strong_password()
+        
+        # Replace placeholders
+        env_content = env_content.replace("your_secure_secret_key", secret_key)
+        env_content = env_content.replace("your_secure_api_key_here", api_key)
+        env_content = env_content.replace("K9NtvfGj9oc-YBqT-jsylu5_SuLCKOB08ZYwV4Hg8rs=", encryption_key)
+        env_content = env_content.replace("SAMPLE_KEY", aws_access_key)
+        env_content = env_content.replace("SAMPLE_SECRET", aws_secret_key)
+        env_content = env_content.replace("your_secure_password", admin_password)
+        
+        # Write the new .env file
+        with open(env_path, 'w') as f:
+            f.write(env_content)
+        
+        print(f"✅ Environment file created successfully at {env_path}")
+        print("\n⚠️  IMPORTANT: Keep these credentials secure!")
+        print(f"SECRET_KEY: {secret_key}")
+        print(f"API_KEY: {api_key}")
+        print(f"AMIVAULT_ENCRYPTION_KEY: {encryption_key}")
+        print(f"AWS_ACCESS_KEY_ID: {aws_access_key}")
+        print(f"AWS_SECRET_ACCESS_KEY: {aws_secret_key}")
+        print(f"ADMIN_PASSWORD: {admin_password}")
+        
+        return True
+    except Exception as e:
+        print(f"❌ Error setting up environment: {e}")
+        logger.error(f"Error setting up environment: {e}")
+        return False
+
+def generate_strong_password(length=16):
+    """
+    Generate a strong random password with mixed case, numbers and special characters.
+    """
+    # Character sets
+    lowercase = 'abcdefghijklmnopqrstuvwxyz'
+    uppercase = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+    numbers = '0123456789'
+    special = '!@#$%^&*()_+-=[]{}|;:,.<>?'
+    
+    # Ensure at least one of each type
+    password = [
+        secrets.choice(lowercase),
+        secrets.choice(uppercase),
+        secrets.choice(numbers),
+        secrets.choice(special)
+    ]
+    
+    # Fill the rest with random characters from all sets
+    all_chars = lowercase + uppercase + numbers + special
+    password.extend(secrets.choice(all_chars) for _ in range(length - 4))
+    
+    # Shuffle the password characters
+    random.shuffle(password)
+    
+    return ''.join(password)
 
 def backup_credentials():
     """Backup AWS credentials and instances from the database."""
