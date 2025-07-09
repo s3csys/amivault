@@ -16,6 +16,10 @@ class ThemeSwitcher {
     if (serverTheme && localStorage.getItem('ami-vault-theme') !== serverTheme) {
       localStorage.setItem('ami-vault-theme', serverTheme);
     }
+    // If localStorage has a theme but server doesn't, apply the localStorage theme
+    else if (!serverTheme && localStorage.getItem('ami-vault-theme')) {
+      this.applyThemeLocally(localStorage.getItem('ami-vault-theme'));
+    }
     
     this.themeList = [
       // Light Themes
@@ -53,8 +57,8 @@ class ThemeSwitcher {
   }
   
   init() {
-    // Apply the saved theme on page load
-    this.applyTheme(this.currentTheme);
+    // Apply the theme locally without saving to server on initial load
+    this.applyThemeLocally(this.currentTheme);
     
     // Initialize the theme switcher UI once DOM is loaded
     document.addEventListener('DOMContentLoaded', () => {
@@ -62,7 +66,8 @@ class ThemeSwitcher {
     });
   }
   
-  applyTheme(themeId) {
+  // New method that only applies theme locally without API call
+  applyThemeLocally(themeId) {
     // Remove any existing theme classes
     document.body.classList.forEach(className => {
       if (className.startsWith('theme-')) {
@@ -80,8 +85,20 @@ class ThemeSwitcher {
     // Update UI if it exists
     const activeThemeElement = document.querySelector('.theme-switcher-active');
     if (activeThemeElement) {
-      activeThemeElement.textContent = this.themeList.find(theme => theme.id === themeId).name;
+      const themeName = this.themeList.find(theme => theme.id === themeId)?.name || themeId;
+      activeThemeElement.textContent = themeName;
     }
+  }
+  
+  // Modified method that applies theme and saves to server
+  applyTheme(themeId) {
+    // Don't make API call if theme hasn't changed
+    if (themeId === this.currentTheme) {
+      return;
+    }
+    
+    // Apply theme locally first
+    this.applyThemeLocally(themeId);
     
     // Save theme preference to server
     fetch('/api/save_theme_preference', {
@@ -91,10 +108,40 @@ class ThemeSwitcher {
       },
       body: JSON.stringify({ theme_id: themeId }),
       credentials: 'same-origin'
-    }).catch(error => {
+    })
+    .then(response => {
+      if (!response.ok) {
+        if (response.status === 401) {
+          console.log('User not authenticated, theme preference not saved');
+          return null;
+        }
+        throw new Error('Failed to save theme preference');
+      }
+      return response.json();
+    })
+    .then(data => {
+      // Only proceed if we got valid data back
+      if (data && data.status === 'success') {
+        // Store a flag to prevent infinite reload loops
+        const lastThemeChange = localStorage.getItem('last-theme-change');
+        const now = Date.now();
+        
+        // Only reload if it's been more than 2 seconds since the last theme change
+        // This prevents reload loops if there are any issues
+        if (!lastThemeChange || (now - parseInt(lastThemeChange)) > 2000) {
+          localStorage.setItem('last-theme-change', now.toString());
+          // Use a small timeout to ensure the theme is applied before reload
+          setTimeout(() => {
+            // Use location.reload(false) to reload from cache for better performance
+            window.location.reload(false);
+          }, 100);
+        }
+      }
+    })
+    .catch(error => {
       console.error('Error saving theme preference:', error);
     });
-}
+  }
   
   bindEvents() {
     // Theme dropdown selection

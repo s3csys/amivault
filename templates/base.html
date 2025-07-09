@@ -50,25 +50,25 @@
       <nav class="sidebar-nav">
         <div class="nav-category">
           <ul class="nav-items">
-            <li class="nav-item active">
+            <li class="nav-item {{ 'active' if request.endpoint == 'dashboard' else '' }}">
               <a href="{{ url_for('dashboard') }}">
                 <i data-feather="home"></i>
                 <span>Dashboard</span>
               </a>
             </li>
-            <li class="nav-item">
+            <li class="nav-item {{ 'active' if request.endpoint == 'aws_instances' else '' }}">
               <a href="{{ url_for('aws_instances') }}">
                 <i data-feather="server"></i>
                 <span>Instances</span>
               </a>
             </li>
-            <li class="nav-item">
+            <li class="nav-item {{ 'active' if request.endpoint == 'backup_settings' else '' }}">
               <a href="{{ url_for('backup_settings') }}">
                 <i data-feather="hard-drive"></i>
                 <span>Backup</span>
               </a>
             </li>
-            <li class="nav-item">
+            <li class="nav-item {{ 'active' if request.endpoint == 'schedules' else '' }}">
               <a href="{{ url_for('schedules') }}">
                 <i data-feather="calendar"></i>
                 <span>Schedules</span>
@@ -79,13 +79,13 @@
         
         <div class="nav-category">
           <ul class="nav-items">
-            <li class="nav-item">
+            <li class="nav-item {{ 'active' if request.endpoint == 'user_settings' else '' }}">
               <a href="{{ url_for('user_settings') }}">
                 <i data-feather="user"></i>
                 <span>User</span>
               </a>
             </li>
-            <li class="nav-item">
+            <li class="nav-item {{ 'active' if request.endpoint == 'api_docs' else '' }}">
               <a href="{{ url_for('api_docs') }}">
                 <i data-feather="book"></i>
                 <span>API Docs</span>
