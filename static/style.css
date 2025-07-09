@@ -539,7 +539,7 @@
 
 .theme-switcher-menu.active {
   display: block;
-  animation: fadeIn 0.2s ease-out;
+  animation: fadeIn s ease-out;
 }
 
 @keyframes fadeIn {
@@ -642,6 +642,8 @@
   bottom: 100%; /* Changed from top: 100% to bottom: 100% to position above */
   margin-bottom: 5px; /* Add some spacing between button and dropdown */
   transition: opacity 0.2s, transform 0.2s;
+  transition-delay: 0.5s;
+  pointer-events: auto;
 }
 
 /* Add a header to the dropdown */
@@ -656,6 +658,7 @@
 .theme-dropdown-container.active {
   display: block;
   animation: fadeIn 0.2s ease-out;
+  transition: opacity 0.3s ease;
 }
 
 /* Animation for dropdown */
@@ -1639,4 +1642,91 @@ button.success:hover {
     top: 100%;
     transform: none;
   }
+
+/* aws_instances.html css */
+/* These styles will be moved to the main CSS file */
+.hidden {
+  display: none;
 }
+
+.hidden-fields {
+  display: none;
+}
+
+/* Styles for password fields with toggle button */
+.password-field {
+  display: flex;
+  align-items: center;
+  position: relative;
+}
+
+.password-field input {
+  flex: 1;
+  padding-right: 40px;
+}
+
+.toggle-password {
+  position: absolute;
+  right: 0;
+  align-items: center;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--accent-color);
+  padding: 0 10px;
+}
+
+.toggle-password:hover {
+  color: var(--accent-light-color);
+}
+
+/* Styles for credential form */
+.credential-form {
+  border-bottom: 1px solid var(--input-border);
+  padding-bottom: 20px;
+  margin-bottom: 20px;
+}
+
+/* Form grid layout */
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+/* Input with button */
+.input-with-button {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.input-with-button input {
+  flex: 1;
+}
+
+/* Help text */
+.help-text {
+  font-size: 0.85em;
+  color: var(--text-light-color);
+  margin-top: 2px;
+}
+
+/* Checkbox container */
+.checkbox-container {
+  margin-top: 10px;
+}
+
+.checkbox-label {
+  display: inline;
+  margin-left: 5px;
+}
+
+/* Custom input */
+.custom-input {
+  margin-top: 10px;
+}
+/* aws_instances.html css */
+
+}
+
