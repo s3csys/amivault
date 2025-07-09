@@ -165,6 +165,13 @@ app = Flask(__name__)
 def inject_env_variables():
     return dict(os=os, default_theme=default_theme)
 
+@app.context_processor
+def inject_user():
+    if 'username' in session:
+        user = User.query.filter_by(username=session['username']).first()
+        return dict(user=user)
+    return dict(user=None)
+
 # Basic configuration
 app.config.update(
     SECRET_KEY=os.environ.get('SECRET_KEY', 'your-secret-key-change-in-production'),
