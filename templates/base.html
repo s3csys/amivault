@@ -12,7 +12,7 @@
     <!-- Theme Switcher Script -->
     <script src="{{ url_for('static', filename='theme-switcher.js') }}" defer></script>
 </head>
-<body class="theme-datta-able-light"> <!-- Default theme class -->
+<body class="theme-{{ session.get('theme', os.environ.get('DEFAULT_THEME', 'datta-able-light')) }}"> <!-- Use server-side theme -->
   <div class="app-container">
     <!-- Sidebar Navigation -->
     <aside class="sidebar">

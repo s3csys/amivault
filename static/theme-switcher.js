@@ -5,7 +5,18 @@
 
 class ThemeSwitcher {
   constructor() {
-    this.currentTheme = localStorage.getItem('ami-vault-theme') || 'datta-able-light';
+    // Get the theme from the body class (server-side) first, then fallback to localStorage
+    const bodyThemeClass = document.body.className.match(/theme-(\S+)/); 
+    const serverTheme = bodyThemeClass ? bodyThemeClass[1] : null;
+    
+    // Prioritize server theme over localStorage
+    this.currentTheme = serverTheme || localStorage.getItem('ami-vault-theme') || 'datta-able-light';
+    
+    // Update localStorage to match server theme if different
+    if (serverTheme && localStorage.getItem('ami-vault-theme') !== serverTheme) {
+      localStorage.setItem('ami-vault-theme', serverTheme);
+    }
+    
     this.themeList = [
       // Light Themes
       { id: 'classic-light', name: 'Classic Light', category: 'light' },
@@ -62,7 +73,7 @@ class ThemeSwitcher {
     // Add the new theme class
     document.body.classList.add(`theme-${themeId}`);
     
-    // Store the theme preference
+    // Store the theme preference locally
     localStorage.setItem('ami-vault-theme', themeId);
     this.currentTheme = themeId;
     
@@ -71,7 +82,19 @@ class ThemeSwitcher {
     if (activeThemeElement) {
       activeThemeElement.textContent = this.themeList.find(theme => theme.id === themeId).name;
     }
-  }
+    
+    // Save theme preference to server
+    fetch('/api/save_theme_preference', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ theme_id: themeId }),
+      credentials: 'same-origin'
+    }).catch(error => {
+      console.error('Error saving theme preference:', error);
+    });
+}
   
   bindEvents() {
     // Theme dropdown selection
