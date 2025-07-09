@@ -98,44 +98,54 @@ class ThemeSwitcher {
       });
     }
     
-    // Add event listener for the sidebar theme button
-    const sidebarThemeButton = document.getElementById('sidebar-theme-button');
+    // Add hover event listeners for the sidebar theme item
+    const sidebarThemeItem = document.getElementById('sidebar-theme-item');
     const themeDropdownContainer = document.getElementById('theme-dropdown-container');
     
-    if (sidebarThemeButton && themeDropdownContainer) {
+    if (sidebarThemeItem && themeDropdownContainer) {
       // Ensure dropdown is properly positioned relative to the button
       const updateDropdownPosition = () => {
-        const sidebarItem = document.getElementById('sidebar-theme-item');
         const isCollapsed = document.querySelector('.app-container').classList.contains('sidebar-collapsed');
         
         if (isCollapsed) {
           // When sidebar is collapsed, position to the right of the sidebar
           themeDropdownContainer.style.left = 'var(--sidebar-collapsed-width)';
-          themeDropdownContainer.style.top = `${sidebarItem.offsetTop}px`;
+          themeDropdownContainer.style.top = 'auto';
+          themeDropdownContainer.style.bottom = `calc(100% - ${sidebarThemeItem.offsetTop}px)`;
         } else {
-          // When sidebar is expanded, position below the button
+          // When sidebar is expanded, position above the button
           themeDropdownContainer.style.left = '0';
-          themeDropdownContainer.style.top = '100%';
+          themeDropdownContainer.style.top = 'auto';
+          themeDropdownContainer.style.bottom = '100%';
         }
       };
       
-      sidebarThemeButton.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation(); // Prevent event bubbling
-        
+      // Show dropdown on mouseenter
+      sidebarThemeItem.addEventListener('mouseenter', () => {
         // Update position before showing
         updateDropdownPosition();
         
-        // Toggle active class
-        themeDropdownContainer.classList.toggle('active');
+        // Show dropdown
+        themeDropdownContainer.classList.add('active');
       });
       
-      // Close dropdown when clicking outside
-      document.addEventListener('click', (e) => {
-        if (!sidebarThemeButton.contains(e.target) && 
-            !themeDropdownContainer.contains(e.target)) {
+      // Hide dropdown when mouse leaves both the item and the dropdown
+      sidebarThemeItem.addEventListener('mouseleave', (e) => {
+        // Check if mouse is moving to the dropdown
+        const toElement = e.relatedTarget;
+        if (!themeDropdownContainer.contains(toElement)) {
           themeDropdownContainer.classList.remove('active');
         }
+      });
+      
+      // Keep dropdown open when mouse is over it
+      themeDropdownContainer.addEventListener('mouseenter', () => {
+        themeDropdownContainer.classList.add('active');
+      });
+      
+      // Hide dropdown when mouse leaves it
+      themeDropdownContainer.addEventListener('mouseleave', () => {
+        themeDropdownContainer.classList.remove('active');
       });
       
       // Update position when sidebar is toggled

@@ -17,36 +17,38 @@
     <!-- Sidebar Navigation -->
     <aside class="sidebar">
       <div class="sidebar-header">
-        <div class="logo-container" aria-label="AMI Snapshot Logo">
-          <svg width="40" height="40" viewBox="10 20 42 40" fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-            aria-label="AMI Snapshot Logo" role="img">
-            <!-- AWS Hexagon Outline -->
-            <polygon points="32 2 58 16 58 48 32 62 6 48 6 16"
-              stroke="var(--accent-color)" stroke-width="2" fill="none"/>
-            <!-- Cloud Shape with gradient -->
-            <defs>
-              <linearGradient id="cloudGradient" x1="20" y1="38" x2="45" y2="52" gradientUnits="userSpaceOnUse">
-                <stop stop-color="var(--accent-light-color)"/>
-                <stop offset="1" stop-color="var(--accent-color)"/>
-              </linearGradient>
-            </defs>
-            <path fill="url(#cloudGradient)" d="M45 38a9 9 0 0 0-18 0H20a7 7 0 0 0 0 14h25a7 7 0 0 0 0-14h-0z"/>
-            <!-- Camera Shutter (snapshot) -->
-            <circle cx="32" cy="38" r="6" fill="var(--primary-color)" stroke="var(--accent-light-color)" stroke-width="2"/>
-            <path d="M32 32v12M26 38h12"
-              stroke="var(--accent-color)" stroke-width="2" stroke-linecap="round"/>
-            <!-- Small circle center -->
-            <circle cx="32" cy="38" r="2.2" fill="#22c55e" stroke="var(--accent-color)" stroke-width="1"/>
-          </svg>
-        </div>
-        <h1 class="sidebar-title">Ami Vault</h1>
+        <!-- Make logo and title clickable to redirect to home page -->
+        <a href="{{ url_for('dashboard') }}" class="logo-header-link">
+          <div class="logo-container" aria-label="AMI Snapshot Logo">
+            <svg width="40" height="40" viewBox="10 20 42 40" fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+              aria-label="AMI Snapshot Logo" role="img">
+              <!-- AWS Hexagon Outline -->
+              <polygon points="32 2 58 16 58 48 32 62 6 48 6 16"
+                stroke="var(--accent-color)" stroke-width="2" fill="none"/>
+              <!-- Cloud Shape with gradient -->
+              <defs>
+                <linearGradient id="cloudGradient" x1="20" y1="38" x2="45" y2="52" gradientUnits="userSpaceOnUse">
+                  <stop stop-color="var(--accent-light-color)"/>
+                  <stop offset="1" stop-color="var(--accent-color)"/>
+                </linearGradient>
+              </defs>
+              <path fill="url(#cloudGradient)" d="M45 38a9 9 0 0 0-18 0H20a7 7 0 0 0 0 14h25a7 7 0 0 0 0-14h-0z"/>
+              <!-- Camera Shutter (snapshot) -->
+              <circle cx="32" cy="38" r="6" fill="var(--primary-color)" stroke="var(--accent-light-color)" stroke-width="2"/>
+              <path d="M32 32v12M26 38h12"
+                stroke="var(--accent-color)" stroke-width="2" stroke-linecap="round"/>
+              <!-- Small circle center -->
+              <circle cx="32" cy="38" r="2.2" fill="#22c55e" stroke="var(--accent-color)" stroke-width="1"/>
+            </svg>
+          </div>
+          <h1 class="sidebar-title">Ami Vault</h1>
+        </a>
       </div>
       
       <!-- Sidebar Navigation Categories -->
       <nav class="sidebar-nav">
         <div class="nav-category">
-          <!-- <span class="nav-category-title">APPS</span> -->
           <ul class="nav-items">
             <li class="nav-item active">
               <a href="{{ url_for('dashboard') }}">
@@ -75,32 +77,7 @@
           </ul>
         </div>
         
-        <!-- <div class="nav-category">
-          <span class="nav-category-title">UI COMPONENTS</span>
-          <ul class="nav-items">
-            <li class="nav-item">
-              <a href="#">
-                <i data-feather="square"></i>
-                <span>Color</span>
-              </a>
-            </li>
-            <li class="nav-item">
-              <a href="#">
-                <i data-feather="type"></i>
-                <span>Typography</span>
-              </a>
-            </li>
-            <li class="nav-item">
-              <a href="#">
-                <i data-feather="image"></i>
-                <span>Icons</span>
-              </a>
-            </li>
-          </ul>
-        </div> -->
-        
         <div class="nav-category">
-          <!-- <span class="nav-category-title">PAGES</span> -->
           <ul class="nav-items">
             <li class="nav-item">
               <a href="{{ url_for('user_settings') }}">
@@ -114,11 +91,10 @@
                 <span>API Docs</span>
               </a>
             </li>
-            <!-- Logout link moved to the end of sidebar -->
           </ul>
         </div>
         
-        <!-- Added logout at the end of sidebar -->
+        <!-- Moved logout and theme switcher to the bottom -->
         <div class="nav-category" style="margin-top: auto;">
           <ul class="nav-items">
             <li class="nav-item">
@@ -127,26 +103,51 @@
                 <span>Logout</span>
               </a>
             </li>
+            <!-- Theme switcher moved below logout -->
+            <!-- Replace the existing theme switcher in the sidebar -->
+            <li class="nav-item" id="sidebar-theme-item">
+              <a href="#" id="sidebar-theme-button">
+                <i data-feather="droplet"></i>
+                <span>Theme</span>
+              </a>
+              <!-- Modified theme dropdown container with better positioning -->
+              <div class="theme-dropdown-container" id="theme-dropdown-container">
+                <div class="theme-dropdown-header">Select Theme</div>
+                <select id="theme-dropdown" class="theme-select" aria-label="Select theme">
+                  <option disabled>-- Light Themes --</option>
+                  <option value="classic-light">Classic Light</option>
+                  <option value="soft-gray">Soft Gray</option>
+                  <option value="material-light">Material Light</option>
+                  <option value="flat-ui-light">Flat UI Light</option>
+                  <option value="minimal-white">Minimal White</option>
+                  
+                  <option disabled>-- Dark Themes --</option>
+                  <option value="classic-dark">Classic Dark</option>
+                  <option value="midnight-blue">Midnight Blue</option>
+                  <option value="neon-dark">Neon Dark</option>
+                  <option value="cyberpunk">Cyberpunk</option>
+                  <option value="dark-gray">Dark Gray</option>
+                  
+                  <option disabled>-- Hybrid Themes --</option>
+                  <option value="tailwind-ui-light">Tailwind UI Light</option>
+                  <option value="tailwind-ui-dark">Tailwind UI Dark</option>
+                  <option value="ant-design-light">Ant Design Light</option>
+                  <option value="ant-design-dark">Ant Design Dark</option>
+                  <option value="bootstrap-light">Bootstrap Light</option>
+                  <option value="bootstrap-dark">Bootstrap Dark</option>
+                  <option value="datta-able-light">Datta Able Light</option>
+                  <option value="datta-able-dark">Datta Able Dark</option>
+                  
+                  <option disabled>-- Designer Themes --</option>
+                  <option value="solarized-light">Solarized Light</option>
+                  <option value="solarized-dark">Solarized Dark</option>
+                  <option value="dracula">Dracula</option>
+                  <option value="nord">Nord</option>
+                </select>
+              </div>
+            </li>
           </ul>
         </div>
-        
-        <!-- <div class="nav-category">
-          <span class="nav-category-title">OTHER</span>
-          <ul class="nav-items">
-            <li class="nav-item">
-              <a href="#">
-                <i data-feather="menu"></i>
-                <span>Menu Levels</span>
-              </a>
-            </li>
-            <li class="nav-item">
-              <a href="#">
-                <i data-feather="file"></i>
-                <span>Sample Page</span>
-              </a>
-            </li>
-          </ul>
-        </div> -->
       </nav>
     </aside>
 
@@ -162,7 +163,8 @@
             <a href="{{ url_for('dashboard') }}">Home</a>
             {% if request.endpoint != 'dashboard' %}
               <span class="breadcrumb-separator">/</span>
-              <span>{{ request.endpoint|capitalize }}</span>
+              <!-- Fix breadcrumb to show proper path -->
+              <span><a href="{{ url_for(request.endpoint) }}">{{ request.endpoint.replace('_', ' ').title() }}</a></span>
             {% endif %}
           </div>
         </div>
@@ -178,8 +180,6 @@
               </div>
             </button>
           </div>
-          
-          <!-- Theme switcher will be moved to sidebar -->
         </div>
       </header>
 
@@ -277,39 +277,18 @@
     // Initialize Feather icons
     feather.replace();
     
-// Sidebar toggle functionality
-const sidebarToggle = document.getElementById('sidebar-toggle');
-const appContainer = document.querySelector('.app-container');
+    // Sidebar toggle functionality
+    const sidebarToggle = document.getElementById('sidebar-toggle');
+    const appContainer = document.querySelector('.app-container');
 
-// Set default to collapsed
-if (appContainer && !appContainer.classList.contains('sidebar-collapsed')) {
-  appContainer.classList.add('sidebar-collapsed');
-}
+    // Set default to collapsed
+    if (appContainer && !appContainer.classList.contains('sidebar-collapsed')) {
+      appContainer.classList.add('sidebar-collapsed');
+    }
 
-if (sidebarToggle && appContainer) {
-  sidebarToggle.addEventListener('click', function() {
-    appContainer.classList.toggle('sidebar-collapsed');
-  });
-}
-
-    
-    // Move theme switcher to sidebar
-    const sidebarThemeButton = document.getElementById('sidebar-theme-button');
-    if (sidebarThemeButton) {
-      sidebarThemeButton.addEventListener('click', function(e) {
-        e.preventDefault();
-        const themeMenu = document.querySelector('.theme-switcher-menu');
-        if (themeMenu) {
-          themeMenu.classList.toggle('active');
-        }
-      });
-      
-      // Close when clicking outside
-      document.addEventListener('click', function(e) {
-        const themeMenu = document.querySelector('.theme-switcher-menu');
-        if (themeMenu && !sidebarThemeButton.contains(e.target) && !themeMenu.contains(e.target)) {
-          themeMenu.classList.remove('active');
-        }
+    if (sidebarToggle && appContainer) {
+      sidebarToggle.addEventListener('click', function() {
+        appContainer.classList.toggle('sidebar-collapsed');
       });
     }
     

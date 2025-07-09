@@ -639,7 +639,9 @@
   /* Position will be set dynamically by JavaScript */
   border: 1px solid var(--input-border);
   left: 0;
-  top: 100%;
+  bottom: 100%; /* Changed from top: 100% to bottom: 100% to position above */
+  margin-bottom: 5px; /* Add some spacing between button and dropdown */
+  transition: opacity 0.2s, transform 0.2s;
 }
 
 /* Add a header to the dropdown */
@@ -658,7 +660,7 @@
 
 /* Animation for dropdown */
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
+  from { opacity: 0; transform: translateY(-10px); } /* Changed from translateY(10px) to translateY(-10px) */
   to { opacity: 1; transform: translateY(0); }
 }
 
