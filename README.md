@@ -223,85 +223,11 @@ pip install -r requirements.txt
 <details open>
 <summary><b>Step 4: Configure Environment Variables</b></summary>
 
-Create a `.env` file in the root directory with the following variables:
+Create a `.env` file in the root directory with the following:
 
-```ini
-# Flask Application Configuration
-# Main Flask application file
-FLASK_APP=app.py
-# Environment mode: 'development' or 'production'
-FLASK_ENV=development
-# Enable debug mode for development (1=enabled, 0=disabled)
-FLASK_DEBUG=1
-# IP address to bind the server to (0.0.0.0 allows external connections)
-FLASK_HOST=0.0.0.0
-# Port number for the Flask application
-FLASK_PORT=5000
-
-# Security Configuration
-# Secret key used for session encryption and CSRF protection
-# IMPORTANT: Use a strong, unique value in production
-SECRET_KEY=your_secure_secret_key  # Generate a strong random key
-
-# Database Configuration
-# SQLite database URL (can be changed to other database engines)
-DATABASE_URL=sqlite:///amivault.db
-
-# Default Admin User Configuration
-# Default administrator username
-ADMIN_USERNAME=admin
-# Default administrator password (should be changed after first login)
-ADMIN_PASSWORD=your_secure_password  # Change from default
-# Default administrator email address
-ADMIN_EMAIL=admin@example.com
-
-# Backup Configuration
-# Default cron expression for backup frequency (0 2 * * * = daily at 2 AM)
-# Format: minute hour day-of-month month day-of-week
-DEFAULT_BACKUP_FREQUENCY=0 2 * * *
-# Default number of days to retain backups before automatic cleanup
-DEFAULT_RETENTION_DAYS=7
-
-# Logging Configuration
-# Log level can be DEBUG, INFO, WARNING, ERROR, or CRITICAL
-LOG_LEVEL=INFO
-# Directory where log files are stored
-LOG_DIR=logs
-# Access log filename
-ACCESS_LOG=access.log
-# Error log filename
-ERROR_LOG=error.log
-# Application log filename
-APP_LOG=app.log
-# Format string for log entries
-LOG_FORMAT=%(asctime)s - %(name)s - %(levelname)s - %(message)s
-# Format for timestamps in logs
-LOG_DATE_FORMAT=%Y-%m-%d %H:%M:%S
-# Maximum size of log files before rotation (10MB)
-LOG_MAX_BYTES=10485760
-# Number of backup log files to keep
-LOG_BACKUP_COUNT=5
-
-# Application Debug Mode
-# Set to True to enable detailed error messages and debugging features
-# Set to False in production for security and performance
-DEBUG_MODE=True
-
-# AWS EventBridge Configuration
-# ARN of the Lambda function to be used as EventBridge target for AMI backups
-# This is automatically set when you switch an instance's scheduler type to "EventBridge"
-# The Lambda function is deployed automatically and handles AMI creation
-# Example: arn:aws:lambda:us-east-1:123456789012:function:amivault-backup
-BACKUP_LAMBDA_ARN=
-
-# API Gateway endpoint for EventBridge target (alternative to Lambda)
-# This is the URL that the Lambda function will call back to update backup status
-# For dynamic IP setups, this needs to be your public-facing URL that can receive callbacks
-# Example: https://your-public-ip:5000/api/backup-callback or an API Gateway ARN
-# Example ARN: arn:aws:execute-api:us-east-1:123456789012:abcdef123/prod/POST/backup
-API_GATEWAY_ENDPOINT=
+```bash
+echo -e "y" | python3 utility_manager.py --set-env
 ```
-
 > **Note:** For production environments, use a secure random key generator for the `SECRET_KEY`.
 </details>
 
@@ -310,7 +236,7 @@ API_GATEWAY_ENDPOINT=
 
 ```bash
 # Create database tables
-python utility_manager.py --recreate-db
+echo -e "y\nRECREATE" | python3 utility_manager.py --recreate-db
 ```
 </details>
 
