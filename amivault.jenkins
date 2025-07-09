@@ -49,13 +49,21 @@ pipeline {
                     set -e
                     . "${VENV_DIR}/bin/activate"
                     python3 utility_manager.py --set-env
-                    pytest test_app.py -v --junitxml=reports/test-results.xml --cov=app --cov-report=xml:reports/coverage.xml
+                    pytest test_app.py -v --junitxml=reports/test-results.xml --cov=app --cov-report=xml:reports/coverage.xml --cov-report=html:reports/htmlcov
                 '''
                 junit 'reports/test-results.xml'
-                recordCoverage tools: [[$class: 'CoberturaCoverageAdapter', pattern: 'reports/coverage.xml']]
+                publishHTML([
+                  reportDir: 'reports/htmlcov',
+                  reportFiles: 'index.html',
+                  reportName: 'Code Coverage HTML Report',
+                  allowMissing: true,
+                  alwaysLinkToLastBuild: true,
+                  keepAll: true
+                ])
+                archiveArtifacts artifacts: 'reports/*.xml', fingerprint: true
             }
         }
-
+        
         stage('Deploy') {
             steps {
                 sh '''
@@ -78,8 +86,13 @@ pipeline {
                     chmod -R 755 "${DEPLOY_DIR}"
                     pip install --upgrade pip
                     pip install -r requirements.txt
-                    echo -e "y" | python3 utility_manager.py --set-env
-                    echo -e "y\nRECREATE" | python3 utility_manager.py --recreate-db
+                    python3 utility_manager.py --set-env << EOF
+                    y
+                    EOF
+                    python3 utility_manager.py --recreate-db << EOF
+                    y
+                    RECREATE
+                    EOF
                     systemctl restart amivault.service
                 '''
             }
