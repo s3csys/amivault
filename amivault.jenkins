@@ -69,8 +69,7 @@ pipeline {
                 sh '''
                     set -e
                     echo "Deploying ${BRANCH} branch to ${DEPLOY_DIR}"
-                    rm -rf "$WORKSPACE/instance"
-                    rsync -laz "$WORKSPACE/" "${DEPLOY_DIR}"
+                    rsync -lavz --exclude='.coverage' --exclude='coverage.xml' --exclude='.env' --exclude='instance/amivault.db' --exclude='.key' --exclude='logs' --exclude='__pycache__'   --exclude='.pytest_cache' --exclude='reports' --exclude='venv' --exclude='' "$WORKSPACE/" "${DEPLOY_DIR}"
                     echo "Deployment of ${BRANCH} branch to ${DEPLOY_DIR} completed"
                 '''
             }
@@ -82,17 +81,10 @@ pipeline {
                     set -e
                     python3 -m venv "${VENV_DIR}"
                     . "${VENV_DIR}/bin/activate"
-                    chown -R ${PERM} "${DEPLOY_DIR}"
-                    chmod -R 755 "${DEPLOY_DIR}"
                     pip install --upgrade pip
                     pip install -r requirements.txt
-                    python3 utility_manager.py --set-env << EOF
-                    y
-                    EOF
-                    python3 utility_manager.py --recreate-db << EOF
-                    y
-                    RECREATE
-                    EOF
+                    chown -R ${PERM} "${DEPLOY_DIR}"
+                    chmod -R 755 "${DEPLOY_DIR}"
                     systemctl restart amivault.service
                 '''
             }
