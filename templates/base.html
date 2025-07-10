@@ -164,7 +164,8 @@
             {% if request.endpoint != 'dashboard' %}
               <span class="breadcrumb-separator">/</span>
               <!-- Fix breadcrumb to show proper path -->
-              <span><a href="{{ url_for(request.endpoint) }}">{{ request.endpoint.replace('_', ' ').title() }}</a></span>
+              <span><a href="{{ url_for(request.endpoint) }}">{{ request.endpoint.replace('_', '.').title() }}</a></span>
+               <!-- <span><a href="{{ url_for(request.endpoint) }}">{{ request.endpoint.title() }}</a></span> -->
             {% endif %}
           </div>
         </div>
