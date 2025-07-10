@@ -1557,6 +1557,52 @@ def test_api_docs_html_format(client):
     assert b'AMIVault API' in response.data
 
 
+def test_api_save_theme_preference_unauthorized(client):
+    """Test /api/save_theme_preference endpoint without authentication"""
+    response = client.post('/api/save_theme_preference', json={
+        'theme_id': 'datta-able-dark'
+    })
+    assert response.status_code == 401
+    assert json.loads(response.data)['error'] == 'Missing or invalid authorization header'
+
+
+def test_api_save_theme_preference_success(client):
+    """Test /api/save_theme_preference endpoint with authentication"""
+    # Login as admin
+    with client.session_transaction() as sess:
+        sess['username'] = 'admin'
+    
+    # Test saving theme preference
+    response = client.post('/api/save_theme_preference', json={
+        'theme_id': 'datta-able-dark'
+    })
+    assert response.status_code == 200
+    data = json.loads(response.data)
+    assert data['status'] == 'success'
+    assert data['message'] == 'Theme preference saved'
+    
+    # Verify theme settings were saved in the database
+    with app.app_context():
+        user = User.query.filter_by(username='admin').first()
+        theme_settings = ThemeSettings.query.filter_by(user_id=user.id).first()
+        assert theme_settings is not None
+        assert theme_settings.theme_id == 'datta-able-dark'
+
+
+def test_api_save_theme_preference_missing_theme_id(client):
+    """Test /api/save_theme_preference endpoint with missing theme_id"""
+    # Login as admin
+    with client.session_transaction() as sess:
+        sess['username'] = 'admin'
+    
+    # Test with missing theme_id
+    response = client.post('/api/save_theme_preference', json={})
+    assert response.status_code == 400
+    data = json.loads(response.data)
+    assert data['status'] == 'error'
+    assert data['message'] == 'Theme ID is required'
+
+
 ################################################ Event bridge checks ######################################################################
 
 @patch('boto3.Session')

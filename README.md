@@ -575,6 +575,12 @@ AMIVault provides a comprehensive RESTful API for seamless integration with othe
     <td>Required</td>
   </tr>
   <tr>
+    <td>/api/save_theme_preference</td>
+    <td>POST</td>
+    <td>Save user theme preference to database</td>
+    <td>Required</td>
+  </tr>
+  <tr>
     <td>/api/docs</td>
     <td>GET</td>
     <td>Interactive API documentation</td>

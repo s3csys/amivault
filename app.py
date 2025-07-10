@@ -4324,11 +4324,9 @@ def api_login():
     })
 
 @app.route('/api/save_theme_preference', methods=['POST'])
-def save_theme_preference():
+@token_required
+def save_theme_preference(current_user):
     """Save user theme preference to database"""
-    if 'user_id' not in session:
-        return jsonify({'status': 'error', 'message': 'Not authenticated'}), 401
-        
     data = request.get_json()
     theme_id = data.get('theme_id')
     
@@ -4336,10 +4334,10 @@ def save_theme_preference():
         return jsonify({'status': 'error', 'message': 'Theme ID is required'}), 400
         
     # Get or create theme settings for user
-    theme_settings = ThemeSettings.query.filter_by(user_id=session['user_id']).first()
+    theme_settings = ThemeSettings.query.filter_by(user_id=current_user.id).first()
     
     if not theme_settings:
-        theme_settings = ThemeSettings(user_id=session['user_id'], theme_id=theme_id)
+        theme_settings = ThemeSettings(user_id=current_user.id, theme_id=theme_id)
         db.session.add(theme_settings)
     else:
         theme_settings.theme_id = theme_id
