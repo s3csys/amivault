@@ -1,16 +1,16 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="content">
-  <h2 style="text-align:center; color:#4f8cff; margin-bottom:2rem;">AWS Instance Management</h2>
+  <h2 style="text-align:center; color:var(--accent-color); margin-bottom:2rem;">AWS Instance Management</h2>
   
   <!-- AWS Credentials Management Section -->
   <div class="section" style="margin-bottom:2.5rem;">
-    <div style="background:#f9fafb; border-radius:10px; box-shadow:0 2px 12px rgba(79,140,255,0.06); padding:2rem;">
-      <h3 style="margin-top:0; color:#4f8cff;">AWS Credentials Management</h3>
+    <div style="background:var(--secondary-color); border-radius:10px; box-shadow:0 2px 12px rgba(0,0,0,0.06); padding:2rem;">
+      <h3 style="margin-top:0; color:var(--accent-color);">AWS Credentials Management</h3>
       
       <!-- Add New Credential Form -->
       <form method="POST" action="{{ url_for('add_aws_credential') }}" class="credential-form">
-        <h4 style="color:#4f8cff; margin-top:0;">Add New Credential</h4>
+        <h4 style="color:var(--accent-color); margin-top:0;">Add New Credential</h4>
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px;">
           <div>
             <label>Credential Name</label>
@@ -70,7 +70,7 @@
       <!-- List Credentials -->
       {% if aws_credentials %}
       <div style="margin-top:30px;">
-        <h4 style="color:#4f8cff;">Your AWS Credentials</h4>
+        <h4 style="color:var(--accent-color);">Your AWS Credentials</h4>
         <div style="overflow-x:auto;">
           <table>
             <thead>
@@ -116,7 +116,7 @@
                 <td>
                   {% if cred.user_id is none or (cred.user and cred.user.username == session['username']) or session['username'] == 'admin' %}
                   <form method="POST" action="{{ url_for('delete_aws_credential', credential_id=cred.id) }}" class="delete-credential-form" style="display:inline;">
-                    <button type="submit" class="action-btn action-danger" title="Delete Credential" style="background:#ff3b30; border:none;">
+                    <button type="submit" class="action-btn action-danger" title="Delete Credential" style="background:var(--error-color); border:none;">
                       Delete
                     </button>
                   </form>
@@ -136,8 +136,8 @@
   
   <!-- Add Instance -->
   <div class="section" style="margin-bottom:2.5rem;">
-    <div style="background:#f9fafb; border-radius:10px; box-shadow:0 2px 12px rgba(79,140,255,0.06); padding:2rem;">
-      <h3 style="margin-top:0; color:#4f8cff;">Add New Instance</h3>
+    <div style="background:var(--secondary-color); border-radius:10px; box-shadow:0 2px 12px rgba(79,140,255,0.06); padding:2rem;">
+      <h3 style="margin-top:0; color:var(--accent-color);">Add New Instance</h3>
       <form method="POST" action="{{ url_for('add_instance') }}" class="instance-form">
         <label>Instance ID</label>
         <div style="display: flex; gap: 20px; align-items: center;">
@@ -278,7 +278,7 @@
             placeholder="e.g. 30 1 * * * (Daily at 1:30 AM)"
             style="display:none; margin-left:10px;"
         >
-        <div id="customHelpTextAdd" style="font-size: 0.85em; color: #555; margin-top: 2px; display:none;">
+        <div id="customHelpTextAdd" style="font-size: 0.85em; color: var(--text-light-color); margin-top: 2px; display:none;">
             Enter a valid cron expression, e.g. <code>30 1 * * *</code> for daily at 1:30 AM.
         </div>
         <label>Retention Days</label>
@@ -300,7 +300,7 @@
   {% if instances %}
   <div class="section">
     <div style="background:#f9fafb; border-radius:10px; box-shadow:0 2px 12px rgba(79,140,255,0.06); padding:2rem;">
-      <h3 style="margin-top:0; color:#4f8cff;">Your AWS Instances</h3>
+      <h3 style="margin-top:0; color:var(--accent-color);">Your AWS Instances</h3>
       <div style="overflow-x:auto;">
         <table>
           <thead>
