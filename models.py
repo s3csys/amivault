@@ -209,3 +209,20 @@ class AWSCredential(db.Model):
 
     def __repr__(self):
         return f'<AWSCredential {self.name} ({self.region})>'
+
+class ThemeSettings(db.Model):
+    """Theme settings model for storing user theme preferences"""
+    __tablename__ = 'theme_settings'
+    extend_existing = True
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    theme_id = db.Column(db.String(50), nullable=False, default='datta-able-light')
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), nullable=False)
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False)
+    
+    # Add relationship to User model
+    user = db.relationship('User', backref=db.backref('theme_settings', lazy=True, uselist=False))
+    
+    def __repr__(self):
+        return f'<ThemeSettings user_id={self.user_id} theme={self.theme_id}>'

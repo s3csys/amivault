@@ -1,0 +1,239 @@
+/**
+ * AMI Vault Theme Switcher
+ * Handles theme switching, persistence, and UI interactions
+ */
+
+class ThemeSwitcher {
+  constructor() {
+    // Get the theme from the body class (server-side) first, then fallback to localStorage
+    const bodyThemeClass = document.body.className.match(/theme-(\S+)/); 
+    const serverTheme = bodyThemeClass ? bodyThemeClass[1] : null;
+    
+    // Prioritize server theme over localStorage
+    this.currentTheme = serverTheme || localStorage.getItem('ami-vault-theme') || 'datta-able-light';
+    
+    // Update localStorage to match server theme if different
+    if (serverTheme && localStorage.getItem('ami-vault-theme') !== serverTheme) {
+      localStorage.setItem('ami-vault-theme', serverTheme);
+    }
+    // If localStorage has a theme but server doesn't, apply the localStorage theme
+    else if (!serverTheme && localStorage.getItem('ami-vault-theme')) {
+      this.applyThemeLocally(localStorage.getItem('ami-vault-theme'));
+    }
+    
+    this.themeList = [
+      // Light Themes
+      { id: 'classic-light', name: 'Classic Light', category: 'light' },
+      { id: 'soft-gray', name: 'Soft Gray', category: 'light' },
+      { id: 'material-light', name: 'Material Light', category: 'light' },
+      { id: 'flat-ui-light', name: 'Flat UI Light', category: 'light' },
+      { id: 'minimal-white', name: 'Minimal White', category: 'light' },
+      
+      // Dark Themes
+      { id: 'classic-dark', name: 'Classic Dark', category: 'dark' },
+      { id: 'midnight-blue', name: 'Midnight Blue', category: 'dark' },
+      { id: 'neon-dark', name: 'Neon Dark', category: 'dark' },
+      { id: 'cyberpunk', name: 'Cyberpunk', category: 'dark' },
+      { id: 'dark-gray', name: 'Dark Gray', category: 'dark' },
+      
+      // Hybrid Themes
+      { id: 'tailwind-ui-light', name: 'Tailwind UI Light', category: 'hybrid' },
+      { id: 'tailwind-ui-dark', name: 'Tailwind UI Dark', category: 'hybrid' },
+      { id: 'ant-design-light', name: 'Ant Design Light', category: 'hybrid' },
+      { id: 'ant-design-dark', name: 'Ant Design Dark', category: 'hybrid' },
+      { id: 'bootstrap-light', name: 'Bootstrap Light', category: 'hybrid' },
+      { id: 'bootstrap-dark', name: 'Bootstrap Dark', category: 'hybrid' },
+      { id: 'datta-able-light', name: 'Datta Able Light', category: 'hybrid' },
+      { id: 'datta-able-dark', name: 'Datta Able Dark', category: 'hybrid' },
+      
+      // Designer Themes
+      { id: 'solarized-light', name: 'Solarized Light', category: 'designer' },
+      { id: 'solarized-dark', name: 'Solarized Dark', category: 'designer' },
+      { id: 'dracula', name: 'Dracula', category: 'designer' },
+      { id: 'nord', name: 'Nord', category: 'designer' }
+    ];
+    
+    this.init();
+  }
+  
+  init() {
+    // Apply the theme locally without saving to server on initial load
+    this.applyThemeLocally(this.currentTheme);
+    
+    // Initialize the theme switcher UI once DOM is loaded
+    document.addEventListener('DOMContentLoaded', () => {
+      this.bindEvents();
+    });
+  }
+  
+  // New method that only applies theme locally without API call
+  applyThemeLocally(themeId) {
+    // Remove any existing theme classes
+    document.body.classList.forEach(className => {
+      if (className.startsWith('theme-')) {
+        document.body.classList.remove(className);
+      }
+    });
+    
+    // Add the new theme class
+    document.body.classList.add(`theme-${themeId}`);
+    
+    // Store the theme preference locally
+    localStorage.setItem('ami-vault-theme', themeId);
+    this.currentTheme = themeId;
+    
+    // Update UI if it exists
+    const activeThemeElement = document.querySelector('.theme-switcher-active');
+    if (activeThemeElement) {
+      const themeName = this.themeList.find(theme => theme.id === themeId)?.name || themeId;
+      activeThemeElement.textContent = themeName;
+    }
+  }
+  
+  // Modified method that applies theme and saves to server
+  applyTheme(themeId) {
+    // Don't make API call if theme hasn't changed
+    if (themeId === this.currentTheme) {
+      return;
+    }
+    
+    // Apply theme locally first
+    this.applyThemeLocally(themeId);
+    
+    // Save theme preference to server
+    fetch('/api/save_theme_preference', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ theme_id: themeId }),
+      credentials: 'same-origin'
+    })
+    .then(response => {
+      if (!response.ok) {
+        if (response.status === 401) {
+          console.log('User not authenticated, theme preference not saved');
+          return null;
+        }
+        throw new Error('Failed to save theme preference');
+      }
+      return response.json();
+    })
+    .then(data => {
+      // Only proceed if we got valid data back
+      if (data && data.status === 'success') {
+        // Store a flag to prevent infinite reload loops
+        const lastThemeChange = localStorage.getItem('last-theme-change');
+        const now = Date.now();
+        
+        // Only reload if it's been more than 2 seconds since the last theme change
+        // This prevents reload loops if there are any issues
+        if (!lastThemeChange || (now - parseInt(lastThemeChange)) > 2000) {
+          localStorage.setItem('last-theme-change', now.toString());
+          // Use a small timeout to ensure the theme is applied before reload
+          setTimeout(() => {
+            // Use location.reload(false) to reload from cache for better performance
+            window.location.reload(false);
+          }, 100);
+        }
+      }
+    })
+    .catch(error => {
+      console.error('Error saving theme preference:', error);
+    });
+  }
+  
+  bindEvents() {
+    // Theme dropdown selection
+    const themeDropdown = document.getElementById('theme-dropdown');
+    if (themeDropdown) {
+      // Set the current theme as selected
+      const options = themeDropdown.querySelectorAll('option');
+      options.forEach(option => {
+        if (option.value === this.currentTheme) {
+          option.selected = true;
+        }
+      });
+      
+      // Add change event listener
+      themeDropdown.addEventListener('change', () => {
+        const themeId = themeDropdown.value;
+        this.applyTheme(themeId);
+        
+        // Hide the dropdown after selection
+        const themeDropdownContainer = document.getElementById('theme-dropdown-container');
+        if (themeDropdownContainer) {
+          themeDropdownContainer.classList.remove('active');
+        }
+      });
+    }
+    
+    // Add hover event listeners for the sidebar theme item
+    const sidebarThemeItem = document.getElementById('sidebar-theme-item');
+    const themeDropdownContainer = document.getElementById('theme-dropdown-container');
+    
+    if (sidebarThemeItem && themeDropdownContainer) {
+      // Ensure dropdown is properly positioned relative to the button
+      const updateDropdownPosition = () => {
+        const isCollapsed = document.querySelector('.app-container').classList.contains('sidebar-collapsed');
+        
+        if (isCollapsed) {
+          // When sidebar is collapsed, position to the right of the sidebar
+          themeDropdownContainer.style.left = 'var(--sidebar-collapsed-width)';
+          themeDropdownContainer.style.top = 'auto';
+          themeDropdownContainer.style.bottom = `calc(100% - ${sidebarThemeItem.offsetTop}px)`;
+        } else {
+          // When sidebar is expanded, position above the button
+          themeDropdownContainer.style.left = '0';
+          themeDropdownContainer.style.top = 'auto';
+          themeDropdownContainer.style.bottom = '100%';
+        }
+      };
+      
+      // Show dropdown on mouseenter
+      sidebarThemeItem.addEventListener('mouseenter', () => {
+        // Update position before showing
+        updateDropdownPosition();
+        
+        // Show dropdown
+        themeDropdownContainer.classList.add('active');
+      });
+      
+      // Hide dropdown when mouse leaves both the item and the dropdown
+      sidebarThemeItem.addEventListener('mouseleave', (e) => {
+        // Check if mouse is moving to the dropdown
+        const toElement = e.relatedTarget;
+        if (!themeDropdownContainer.contains(toElement)) {
+          themeDropdownContainer.classList.remove('active');
+        }
+      });
+      
+      // Keep dropdown open when mouse is over it
+      themeDropdownContainer.addEventListener('mouseenter', () => {
+        themeDropdownContainer.classList.add('active');
+      });
+      
+      // Hide dropdown when mouse leaves it
+      themeDropdownContainer.addEventListener('mouseleave', () => {
+        themeDropdownContainer.classList.remove('active');
+      });
+      
+      // Update position when sidebar is toggled
+      const sidebarToggle = document.getElementById('sidebar-toggle');
+      if (sidebarToggle) {
+        sidebarToggle.addEventListener('click', () => {
+          // Hide dropdown when sidebar state changes
+          themeDropdownContainer.classList.remove('active');
+          
+          // Update position after a short delay to allow sidebar animation to complete
+          setTimeout(() => {
+            updateDropdownPosition();
+          }, 300);
+        });
+      }
+    }
+  }
+}
+
+// Initialize the theme switcher
+const themeSwitcher = new ThemeSwitcher();

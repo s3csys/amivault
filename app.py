@@ -6,7 +6,7 @@ from datetime import datetime, timezone, timedelta, UTC
 from flask_apscheduler import APScheduler
 from io import StringIO
 from botocore.exceptions import ClientError, NoCredentialsError
-from models import db, User, Instance, BackupSettings, Backup, AWSCredential
+from models import db, User, Instance, BackupSettings, Backup, AWSCredential, ThemeSettings
 from lambda_callback import lambda_callback
 from functools import wraps
 
@@ -24,6 +24,9 @@ pytz.tzinfo._epoch = datetime.fromtimestamp(0, UTC)
 
 # Load environment variables from .env file
 load_dotenv()
+
+# Set default theme from environment variable
+default_theme = os.environ.get('DEFAULT_THEME', 'datta-able-light')
 
 # Configure logging
 import os
@@ -157,6 +160,18 @@ logger.info("Logging initialized at level {} with logs in {}".format(log_level, 
 
 app = Flask(__name__)
 
+# Make environment variables available to templates
+@app.context_processor
+def inject_env_variables():
+    return dict(os=os, default_theme=default_theme)
+
+@app.context_processor
+def inject_user():
+    if 'username' in session:
+        user = User.query.filter_by(username=session['username']).first()
+        return dict(user=user)
+    return dict(user=None)
+
 # Basic configuration
 app.config.update(
     SECRET_KEY=os.environ.get('SECRET_KEY', 'your-secret-key-change-in-production'),
@@ -168,7 +183,8 @@ app.config.update(
     },
     SCHEDULER_API_ENABLED=True,
     # SCHEDULER_TIMEZONE=os.environ.get('SCHEDULER_TIMEZONE', 'UTC'),
-    DEBUG=os.environ.get('FLASK_DEBUG', '0') == '1'
+    DEBUG=os.environ.get('FLASK_DEBUG', '0') == '1',
+    DEFAULT_THEME=default_theme
 )
 
 # Initialize extensions
@@ -2298,7 +2314,16 @@ def login():
             
             # Direct login without 2FA
             session['username'] = user.username
+            session['user_id'] = user.id
             session['login_time'] = datetime.now(UTC).isoformat()
+            
+            # Get user's theme preference
+            theme_settings = ThemeSettings.query.filter_by(user_id=user.id).first()
+            if theme_settings:
+                session['theme'] = theme_settings.theme_id
+            else:
+                # Use default theme from environment variable or fallback
+                session['theme'] = os.environ.get('DEFAULT_THEME', 'datta-able-light')
             
             if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
                 return jsonify({'success': True, 'redirect': url_for('dashboard')})
@@ -4297,6 +4322,29 @@ def api_login():
         },
         'expires_in': 86400  # 24 hours in seconds
     })
+
+@app.route('/api/save_theme_preference', methods=['POST'])
+@token_required
+def save_theme_preference(current_user):
+    """Save user theme preference to database"""
+    data = request.get_json()
+    theme_id = data.get('theme_id')
+    
+    if not theme_id:
+        return jsonify({'status': 'error', 'message': 'Theme ID is required'}), 400
+        
+    # Get or create theme settings for user
+    theme_settings = ThemeSettings.query.filter_by(user_id=current_user.id).first()
+    
+    if not theme_settings:
+        theme_settings = ThemeSettings(user_id=current_user.id, theme_id=theme_id)
+        db.session.add(theme_settings)
+    else:
+        theme_settings.theme_id = theme_id
+        
+    db.session.commit()
+    
+    return jsonify({'status': 'success', 'message': 'Theme preference saved'})
 
 @app.route('/api/instances')
 @token_required

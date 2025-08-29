@@ -5,12 +5,14 @@
   <title>Ami Vault Login</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+  <!-- Font imports for all themes -->
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600&family=Poppins:wght@400;600&family=Roboto:wght@400;500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
     body, html {
       margin: 0; padding: 0; min-height: 100vh;
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      background: linear-gradient(135deg, #e0e7ff 0%, #f9fafb 100%);
-      color: #22223b;
+      font-family: var(--font-primary, 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif);
+      background: var(--secondary-color, linear-gradient(135deg, #e0e7ff 0%, #f9fafb 100%));
+      color: var(--text-color, #22223b);
       display: flex; flex-direction: column; min-height: 100vh;
     }
     main {
@@ -21,9 +23,9 @@
       padding: 1rem;
     }
     .login-card {
-      background: #fff;
-      border-radius: 16px;
-      box-shadow: 0 6px 24px rgba(79,140,255,0.10);
+      background: var(--card-bg, #fff);
+      border-radius: var(--card-border-radius, 16px);
+      box-shadow: var(--card-shadow, 0 6px 24px rgba(79,140,255,0.10));
       max-width: 400px;
       width: 100%;
       padding: 2.5rem 2rem 2rem 2rem;
@@ -43,10 +45,10 @@
       transform: scale(1.05);
     }
     .logo-heading {
-      font-family: 'Montserrat', sans-serif;
+      font-family: var(--font-primary, 'Montserrat', sans-serif);
       font-weight: 700;
       font-size: 2rem;
-      color: #2563eb;
+      color: var(--accent-color, #2563eb);
       letter-spacing: 1.5px;
       margin: 0 0 1.2rem 0;
       text-transform: uppercase;
@@ -54,7 +56,7 @@
       user-select: none;
     }
     .login-card h2 {
-      color: #4f8cff;
+      color: var(--accent-color, #4f8cff);
       margin-bottom: 1.5rem;
       font-size: 1.35rem;
       font-weight: 700;
@@ -69,29 +71,30 @@
     }
     label {
       font-weight: 600;
-      color: #2563eb;
+      color: var(--accent-color, #2563eb);
       margin-bottom: 0.3rem;
       display: block;
     }
     input[type="text"], input[type="password"] {
       width: 100%;
       padding: 0.75rem 1rem;
-      border: 1.5px solid #d1d5db;
+      border: 1.5px solid var(--input-border, #d1d5db);
       border-radius: 6px;
-      background: #f4f8fd;
+      background: var(--input-bg, #f4f8fd);
       font-size: 1rem;
       transition: border-color 0.2s ease;
       box-sizing: border-box;
+      color: var(--input-text, #333);
     }
     input[type="text"]:focus, input[type="password"]:focus {
-      border-color: #4f8cff;
+      border-color: var(--accent-color, #4f8cff);
       outline: none;
     }
     button {
-      background: linear-gradient(90deg, #4f8cff 60%, #6a82fb 100%);
+      background: var(--button-bg, linear-gradient(90deg, #4f8cff 60%, #6a82fb 100%));
       border: none;
       padding: 0.85rem;
-      color: #fff;
+      color: var(--button-text, #fff);
       font-size: 1.12rem;
       font-weight: 700;
       border-radius: 6px;
@@ -101,40 +104,43 @@
       margin-top: 0.8rem;
     }
     button:hover, button:focus {
-      background: linear-gradient(90deg, #6a82fb 60%, #4f8cff 100%);
+      background: var(--button-hover-bg, linear-gradient(90deg, #6a82fb 60%, #4f8cff 100%));
       outline: none;
     }
     .login-footer {
       margin-top: 1.5rem;
       text-align: center;
-      color: #888;
+      color: var(--text-light-color, #888);
       font-size: 0.97rem;
     }
     /* SweetAlert2 input styling */
     .swal2-popup {
       border-radius: 12px !important;
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      font-family: var(--font-primary, 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif);
+      background: var(--card-bg, #fff) !important;
+      color: var(--text-color, #22223b) !important;
     }
     .swal2-title {
-      color: #4f8cff !important;
+      color: var(--accent-color, #4f8cff) !important;
       font-weight: 700;
       font-size: 1.5rem;
     }
     .swal2-confirm {
-      background: linear-gradient(90deg, #4f8cff 60%, #6a82fb 100%) !important;
+      background: var(--button-bg, linear-gradient(90deg, #4f8cff 60%, #6a82fb 100%)) !important;
       border-radius: 6px !important;
       font-weight: 700 !important;
       font-size: 1.1rem !important;
       box-shadow: 0 2px 8px rgba(79,140,255,0.10) !important;
+      color: var(--button-text, #fff) !important;
     }
     .swal2-confirm:hover, .swal2-confirm:focus {
-      background: linear-gradient(90deg, #6a82fb 60%, #4f8cff 100%) !important;
+      background: var(--button-hover-bg, linear-gradient(90deg, #6a82fb 60%, #4f8cff 100%)) !important;
     }
     .swal2-input, #swal2faCode {
       border-radius: 6px !important;
-      background: #f4f8fd !important;
-      border: 1.5px solid #d1d5db !important;
-      color: #22223b !important;
+      background: var(--input-bg, #f4f8fd) !important;
+      border: 1.5px solid var(--input-border, #d1d5db) !important;
+      color: var(--input-text, #22223b) !important;
       font-size: 1rem !important;
       width: 140px !important;
       max-width: 100% !important;
@@ -145,7 +151,7 @@
       text-align: center;
     }
     .swal2-html-container p {
-      color: #888 !important;
+      color: var(--text-light-color, #888) !important;
     }
     #swal2-input {
       display: none !important;
@@ -159,24 +165,26 @@
       }
     }
   </style>
+  <!-- Theme Switcher Script -->
+  <script src="{{ url_for('static', filename='theme-switcher.js') }}" defer></script>
 </head>
-<body>
+<body class="theme-{{ session.get('theme', os.environ.get('DEFAULT_THEME', 'datta-able-light')) }}">
   <main>
     <section class="login-card" role="main" aria-label="Login form">
       <div class="logo-container" aria-hidden="true">
-        <!-- Inline SVG logo -->
+        <!-- Inline SVG logo with theme variables -->
         <svg width="60" height="50" viewBox="10 20 42 40" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="AMI Snapshot Logo">
           <polygon points="32 2 58 16 58 48 32 62 6 48 6 16" stroke="#FF9900" stroke-width="2" fill="none"/>
           <defs>
             <linearGradient id="cloudGradient" x1="20" y1="38" x2="45" y2="52" gradientUnits="userSpaceOnUse">
-              <stop stop-color="#60a5fa"/>
-              <stop offset="1" stop-color="#2563EB"/>
+              <stop stop-color="var(--accent-light-color, #60a5fa)"/>
+              <stop offset="1" stop-color="var(--accent-color, #2563EB)"/>
             </linearGradient>
           </defs>
           <path fill="url(#cloudGradient)" d="M45 38a9 9 0 0 0-18 0H20a7 7 0 0 0 0 14h25a7 7 0 0 0 0-14h-0z"/>
-          <circle cx="32" cy="38" r="6" fill="#fff" stroke="#60a5fa" stroke-width="2"/>
-          <path d="M32 32v12M26 38h12" stroke="#2563EB" stroke-width="2" stroke-linecap="round"/>
-          <circle cx="32" cy="38" r="2.2" fill="#22c55e" stroke="#2563EB" stroke-width="1"/>
+          <circle cx="32" cy="38" r="6" fill="var(--primary-color, #fff)" stroke="var(--accent-light-color, #60a5fa)" stroke-width="2"/>
+          <path d="M32 32v12M26 38h12" stroke="var(--accent-color, #2563EB)" stroke-width="2" stroke-linecap="round"/>
+          <circle cx="32" cy="38" r="2.2" fill="#22c55e" stroke="var(--accent-color, #2563EB)" stroke-width="1"/>
         </svg>
       </div>
       <div class="logo-heading">Ami Vault</div>
@@ -190,7 +198,7 @@
       </form>
         <div class="login-footer">
           Forgot your password?
-          <a href="#" class="reset-password-link" style="color:#4f8cff;text-decoration:none;">Reset it</a>
+          <a href="#" class="reset-password-link" style="color:var(--accent-color, #4f8cff);text-decoration:none;">Reset it</a>
         </div>
     </section>
   </main>
@@ -226,11 +234,11 @@
       Swal.fire({
         title: 'Enter 2FA Code',
         html: `
-          <input type="text" id="swal2faCode" class="swal2-input" placeholder="123456" maxlength="6" pattern="\\d{6}" inputmode="numeric" autocomplete="one-time-code" autofocus />
+          <input type="text" id="swal2faCode" class="swal2-input" placeholder="123456" maxlength="6" pattern="\d{6}" inputmode="numeric" autocomplete="one-time-code" autofocus />
           <p style="font-size:0.95em; margin-top:1em;">
             Please enter the 6-digit verification code generated by your authenticator app.
           </p>
-          ${message ? `<div style="color:#dc2626; margin-top:1em;">${message}</div>` : ''}
+          ${message ? `<div style="color:var(--error-color, #dc2626); margin-top:1em;">${message}</div>` : ''}
         `,
         confirmButtonText: 'Verify',
         showCancelButton: false,
@@ -272,7 +280,7 @@ document.querySelector('.reset-password-link').addEventListener('click', functio
       Please contact your system administrator to request a password reset.
     </div>`,
     confirmButtonText: 'OK',
-    confirmButtonColor: '#4f8cff'
+    confirmButtonColor: 'var(--accent-color, #4f8cff)'
   });
 });
 

@@ -1,16 +1,16 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="content">
-  <h2 style="text-align:center; color:#4f8cff; margin-bottom:2rem;">AWS Instance Management</h2>
+  <h2 style="text-align:center; color:var(--accent-color); margin-bottom:2rem;">AWS Instance Management</h2>
   
   <!-- AWS Credentials Management Section -->
   <div class="section" style="margin-bottom:2.5rem;">
-    <div style="background:#f9fafb; border-radius:10px; box-shadow:0 2px 12px rgba(79,140,255,0.06); padding:2rem;">
-      <h3 style="margin-top:0; color:#4f8cff;">AWS Credentials Management</h3>
+    <div style="background:var(--secondary-color); border-radius:10px; box-shadow:0 2px 12px rgba(0,0,0,0.06); padding:2rem;">
+      <h3 style="margin-top:0; color:var(--accent-color);">AWS Credentials Management</h3>
       
       <!-- Add New Credential Form -->
       <form method="POST" action="{{ url_for('add_aws_credential') }}" class="credential-form">
-        <h4 style="color:#4f8cff; margin-top:0;">Add New Credential</h4>
+        <h4 style="color:var(--accent-color); margin-top:0;">Add New Credential</h4>
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px;">
           <div>
             <label>Credential Name</label>
@@ -70,7 +70,7 @@
       <!-- List Credentials -->
       {% if aws_credentials %}
       <div style="margin-top:30px;">
-        <h4 style="color:#4f8cff;">Your AWS Credentials</h4>
+        <h4 style="color:var(--accent-color);">Your AWS Credentials</h4>
         <div style="overflow-x:auto;">
           <table>
             <thead>
@@ -116,7 +116,7 @@
                 <td>
                   {% if cred.user_id is none or (cred.user and cred.user.username == session['username']) or session['username'] == 'admin' %}
                   <form method="POST" action="{{ url_for('delete_aws_credential', credential_id=cred.id) }}" class="delete-credential-form" style="display:inline;">
-                    <button type="submit" class="action-btn action-danger" title="Delete Credential" style="background:#ff3b30; border:none;">
+                    <button type="submit" class="action-btn action-danger" title="Delete Credential" style="background:var(--error-color); border:none;">
                       Delete
                     </button>
                   </form>
@@ -136,8 +136,8 @@
   
   <!-- Add Instance -->
   <div class="section" style="margin-bottom:2.5rem;">
-    <div style="background:#f9fafb; border-radius:10px; box-shadow:0 2px 12px rgba(79,140,255,0.06); padding:2rem;">
-      <h3 style="margin-top:0; color:#4f8cff;">Add New Instance</h3>
+    <div style="background:var(--secondary-color); border-radius:10px; box-shadow:0 2px 12px rgba(79,140,255,0.06); padding:2rem;">
+      <h3 style="margin-top:0; color:var(--accent-color);">Add New Instance</h3>
       <form method="POST" action="{{ url_for('add_instance') }}" class="instance-form">
         <label>Instance ID</label>
         <div style="display: flex; gap: 20px; align-items: center;">
@@ -278,7 +278,7 @@
             placeholder="e.g. 30 1 * * * (Daily at 1:30 AM)"
             style="display:none; margin-left:10px;"
         >
-        <div id="customHelpTextAdd" style="font-size: 0.85em; color: #555; margin-top: 2px; display:none;">
+        <div id="customHelpTextAdd" style="font-size: 0.85em; color: var(--text-light-color); margin-top: 2px; display:none;">
             Enter a valid cron expression, e.g. <code>30 1 * * *</code> for daily at 1:30 AM.
         </div>
         <label>Retention Days</label>
@@ -300,7 +300,7 @@
   {% if instances %}
   <div class="section">
     <div style="background:#f9fafb; border-radius:10px; box-shadow:0 2px 12px rgba(79,140,255,0.06); padding:2rem;">
-      <h3 style="margin-top:0; color:#4f8cff;">Your AWS Instances</h3>
+      <h3 style="margin-top:0; color:var(--accent-color);">Your AWS Instances</h3>
       <div style="overflow-x:auto;">
         <table>
           <thead>
@@ -348,19 +348,19 @@
                     id="custom_backup_frequency_{{ loop.index }}"
                     name="custom_backup_frequency"
                     placeholder="e.g. 30 1 * * * (Daily at 1:30 AM)"
-                    style="margin-left:10px; {% if inst.backup_frequency not in [
+                    class="custom-input {% if inst.backup_frequency not in [
                         '*/5 * * * *','*/15 * * * *','*/30 * * * *','0 * * * *','0 */6 * * *','0 */12 * * *',
                         '0 2 * * *','0 0 * * *','0 2 * * 0','0 3 * * 1','0 4 1 * *'
-                    ] %}display:inline-block;{% else %}display:none;{% endif %}"
+                    ] %}{% else %}hidden{% endif %}"
                     value="{% if inst.backup_frequency not in [
                         '*/5 * * * *','*/15 * * * *','*/30 * * * *','0 * * * *','0 */6 * * *','0 */12 * * *',
                         '0 2 * * *','0 0 * * *','0 2 * * 0','0 3 * * 1','0 4 1 * *'
                     ] %}{{ inst.backup_frequency }}{% endif %}"
                   >
-                  <div id="customHelpText_{{ loop.index }}" style="font-size: 0.85em; color: #555; margin-top: 2px; {% if inst.backup_frequency not in [
+                  <div id="customHelpText_{{ loop.index }}" class="help-text {% if inst.backup_frequency not in [
                         '*/5 * * * *','*/15 * * * *','*/30 * * * *','0 * * * *','0 */6 * * *','0 */12 * * *',
                         '0 2 * * *','0 0 * * *','0 2 * * 0','0 3 * * 1','0 4 1 * *'
-                    ] %}display:block;{% else %}display:none;{% endif %}">
+                    ] %}{% else %}hidden{% endif %}">
                     Enter a valid cron expression, e.g. <code>30 1 * * *</code> for daily at 1:30 AM.
                   </div>
                 </td>
@@ -371,18 +371,16 @@
                     <option value="eventbridge" {% if inst.scheduler_type == 'eventbridge' %}selected{% endif %}>EventBridge</option>
                   </select>
                 </td>
-                <td><button type="submit">Update</button></td>
+                <td><button type="submit" class="btn btn-primary">Update</button></td>
               </form>
                 <td>
                   <form method="POST" action="{{ url_for('start_backup', instance_id=inst.instance_id) }}">
-                    <button type="submit" style="background:#22c55e; color:#fff; border:none;">Start Backup</button>
+                    <button type="submit" class="btn btn-success">Start Backup</button>
                   </form>
                 </td>
               <td>
-                <form method="POST" action="{{ url_for('delete_instance', instance_id=inst.instance_id) }}" class="delete-instance-form" style="display:inline;">
-                  <button type="submit" class="action-btn action-danger" title="Delete Instance" style="background:#ff3b30; border:none;">
-                    Delete
-                  </button>
+                <form method="POST" action="{{ url_for('delete_instance', instance_id=inst.instance_id) }}" class="delete-instance-form">
+                  <button type="submit" class="btn btn-danger">Delete</button>
                 </form>
               </td>
             </tr>
@@ -406,10 +404,10 @@ function toggleCustomRegion(selectId, customInputId) {
     var customInput = document.getElementById(customInputId);
     
     if (select.value === 'custom') {
-        customInput.style.display = 'block';
+        customInput.classList.remove('hidden');
         customInput.required = true;
     } else {
-        customInput.style.display = 'none';
+        customInput.classList.add('hidden');
         customInput.required = false;
     }
 }
@@ -421,42 +419,15 @@ function toggleCustomFreq(selectId, customInputId, helpTextId) {
     var helpText = document.getElementById(helpTextId);
     
     if (select.value === 'custom') {
-        customInput.style.display = 'inline-block';
+        customInput.classList.remove('hidden');
         customInput.required = true;
-        if (helpText) helpText.style.display = 'block';
+        if (helpText) helpText.classList.remove('hidden');
     } else {
-        customInput.style.display = 'none';
+        customInput.classList.add('hidden');
         customInput.required = false;
-        if (helpText) helpText.style.display = 'none';
+        if (helpText) helpText.classList.add('hidden');
     }
 }
-
-// Function to toggle credential fields
-// function toggleCredentialFields() {
-//     var credentialSelect = document.getElementById('aws_credential_id');
-//     var credentialFields = document.getElementById('credential_fields');
-//     var saveCredentialsContainer = document.getElementById('save_credentials').parentElement;
-    
-//     if (credentialSelect.value === 'new' || credentialSelect.value === '') {
-//         // Show credential fields for new credentials
-//         credentialFields.style.display = 'block';
-        
-//         // For new credentials, enable the fields
-//         document.getElementById('region_select_add').disabled = false;
-//         document.getElementById('access_key').disabled = false;
-//         document.getElementById('secret_key').disabled = false;
-        
-//         // Only show save option for new credentials
-//         if (credentialSelect.value === 'new') {
-//             saveCredentialsContainer.style.display = 'block';
-//         } else {
-//             saveCredentialsContainer.style.display = 'none';
-//         }
-//     } else {
-//         // Hide credential fields when using saved credentials
-//         credentialFields.style.display = 'none';
-//     }
-// }
 
 function toggleCredentialFields() {
     var credentialSelect = document.getElementById('aws_credential_id');
@@ -470,9 +441,9 @@ function toggleCredentialFields() {
     
     if (credentialSelect.value === 'new' || credentialSelect.value === '') {
         // Show credential fields for new credentials
-        credentialFields.style.display = 'block';
+        credentialFields.classList.remove('hidden-fields');
         
-        // For new credentials, enable the fields and make them required
+        // For new credentials, enable the fields
         regionSelect.disabled = false;
         accessKeyInput.disabled = false;
         secretKeyInput.disabled = false;
@@ -482,13 +453,13 @@ function toggleCredentialFields() {
         
         // Only show save option for new credentials
         if (credentialSelect.value === 'new') {
-            saveCredentialsContainer.style.display = 'block';
+            saveCredentialsContainer.classList.remove('hidden');
         } else {
-            saveCredentialsContainer.style.display = 'none';
+            saveCredentialsContainer.classList.add('hidden');
         }
     } else {
         // Hide credential fields when using saved credentials
-        credentialFields.style.display = 'none';
+        credentialFields.classList.add('hidden-fields');
         
         // Disable and make fields not required when using saved credentials
         regionSelect.disabled = true;
@@ -525,9 +496,9 @@ document.getElementById('aws_credential_id').addEventListener('change', function
 document.getElementById('save_credentials').addEventListener('change', function() {
     var credentialNameContainer = document.getElementById('credential_name_container');
     if (this.checked) {
-        credentialNameContainer.style.display = 'block';
+        credentialNameContainer.classList.remove('hidden');
     } else {
-        credentialNameContainer.style.display = 'none';
+        credentialNameContainer.classList.add('hidden');
     }
 });
 
@@ -583,14 +554,14 @@ $('#check-instance-btn').on('click', function() {
                     icon: 'success',
                     title: 'Instance Verified',
                     text: `Successfully verified instance: ${response.instance_name}`,
-                    confirmButtonColor: '#28a745'
+                    confirmButtonColor: 'var(--accent-color)'
                 });
             } else {
                 Swal.fire({
                     icon: 'error',
                     title: 'Verification Failed',
                     text: response.error || 'Failed to verify instance',
-                    confirmButtonColor: '#dc3545'
+                    confirmButtonColor: 'var(--error-color)'
                 });
             }
         },
@@ -605,7 +576,7 @@ $('#check-instance-btn').on('click', function() {
                 icon: 'error',
                 title: 'Verification Failed',
                 text: errorMessage,
-                confirmButtonColor: '#dc3545'
+                confirmButtonColor: 'var(--error-color)'
             });
         },
         complete: function() {
@@ -647,8 +618,8 @@ document.addEventListener('DOMContentLoaded', function() {
             showCancelButton: true,
             confirmButtonText: 'Yes, delete instance and backups!',
             cancelButtonText: 'Cancel',
-            confirmButtonColor: '#d33',
-            cancelButtonColor: '#3085d6'
+            confirmButtonColor: 'var(--error-color)',
+            cancelButtonColor: 'var(--accent-color)'
           }).then((result) => {
             if (result.isConfirmed) {
               // Submit the form with confirmation flag
@@ -669,7 +640,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     icon: 'success',
                     title: 'Deleted!',
                     text: data.message,
-                    confirmButtonColor: '#3085d6'
+                    confirmButtonColor: 'var(--accent-color)'
                   }).then(() => {
                     window.location.reload();
                   });
@@ -678,7 +649,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     icon: 'error',
                     title: 'Error',
                     text: data.error || 'An error occurred while deleting the instance',
-                    confirmButtonColor: '#3085d6'
+                    confirmButtonColor: 'var(--accent-color)'
                   });
                 }
               })
@@ -688,7 +659,7 @@ document.addEventListener('DOMContentLoaded', function() {
                   icon: 'error',
                   title: 'Error',
                   text: 'An error occurred while processing your request',
-                  confirmButtonColor: '#3085d6'
+                  confirmButtonColor: 'var(--accent-color)'
                 });
               });
             }
@@ -702,8 +673,8 @@ document.addEventListener('DOMContentLoaded', function() {
             showCancelButton: true,
             confirmButtonText: 'Yes, delete it!',
             cancelButtonText: 'Cancel',
-            confirmButtonColor: '#d33',
-            cancelButtonColor: '#3085d6'
+            confirmButtonColor: 'var(--error-color)',
+            cancelButtonColor: 'var(--accent-color)'
           }).then((result) => {
             if (result.isConfirmed) {
               form.submit();
@@ -721,8 +692,8 @@ document.addEventListener('DOMContentLoaded', function() {
           showCancelButton: true,
           confirmButtonText: 'Yes, delete it!',
           cancelButtonText: 'Cancel',
-          confirmButtonColor: '#d33',
-          cancelButtonColor: '#3085d6'
+          confirmButtonColor: 'var(--error-color)',
+          cancelButtonColor: 'var(--accent-color)'
         }).then((result) => {
           if (result.isConfirmed) {
             form.submit();
@@ -743,8 +714,8 @@ document.addEventListener('DOMContentLoaded', function() {
         showCancelButton: true,
         confirmButtonText: 'Yes, delete it!',
         cancelButtonText: 'Cancel',
-        confirmButtonColor: '#d33',
-        cancelButtonColor: '#3085d6'
+        confirmButtonColor: 'var(--error-color)',
+        cancelButtonColor: 'var(--accent-color)'
       }).then((result) => {
         if (result.isConfirmed) {
           form.submit();
@@ -754,42 +725,6 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 });
 </script>
-
-<style>
-/* Styles for password fields with toggle button */
-.password-field {
-  display: flex;
-  align-items: center;
-  position: relative;
-}
-
-.password-field input {
-  flex: 1;
-  padding-right: 40px;
-}
-
-.toggle-password {
-  position: absolute;
-  align-items: center;
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: #4f8cff;
-  padding: 20px;
-}
-
-.toggle-password:hover {
-  color: #2563eb;
-}
-
-/* Styles for credential form */
-.credential-form {
-  border-bottom: 1px solid #eee;
-  padding-bottom: 20px;
-  margin-bottom: 20px;
-}
-</style>
-{% endblock %}
 
 <script>
 // Function to validate cron expressions for AWS EventBridge
@@ -928,3 +863,227 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 });
 </script>
+
+<script>
+// Function to validate cron expressions for AWS EventBridge
+function validateCronExpression(cronExpression) {
+  if (!cronExpression || typeof cronExpression !== 'string') {
+    return false;
+  }
+  
+  // Additional validation for AWS EventBridge requirements
+  const parts = cronExpression.trim().split(/\s+/);
+  if (parts.length !== 5) {
+    return false;
+  }
+  
+  // Basic validation for each part
+  const minutes = parts[0];
+  const hours = parts[1];
+  const dayOfMonth = parts[2];
+  const month = parts[3];
+  const dayOfWeek = parts[4];
+  
+  // Check if minutes is valid (0-59)
+  if (minutes !== '*' && !/^(\d+|\d+-\d+|\*/\d+|\d+(,\d+)*)$/.test(minutes)) {
+    return false;
+  }
+  
+  // Check if hours is valid (0-23)
+  if (hours !== '*' && !/^(\d+|\d+-\d+|\*/\d+|\d+(,\d+)*)$/.test(hours)) {
+    return false;
+  }
+  
+  // Check if day of month is valid (1-31 or * or ?)
+  if (dayOfMonth !== '*' && dayOfMonth !== '?' && !/^(\d+|\d+-\d+|\*/\d+|\d+(,\d+)*)$/.test(dayOfMonth)) {
+    return false;
+  }
+  
+  // Check if month is valid (1-12 or * or named months)
+  if (month !== '*' && !/^(\d+|\d+-\d+|\*/\d+|\d+(,\d+)*|JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)$/i.test(month)) {
+    return false;
+  }
+  
+  // Check if day of week is valid (0-7 or * or ? or named days)
+  if (dayOfWeek !== '*' && dayOfWeek !== '?' && !/^(\d+|\d+-\d+|\*/\d+|\d+(,\d+)*|SUN|MON|TUE|WED|THU|FRI|SAT)$/i.test(dayOfWeek)) {
+    return false;
+  }
+  
+  // In AWS EventBridge, you can't specify both day-of-month and day-of-week
+  // If both are specified with values other than ? or *, one must be set to ?
+  if (dayOfMonth !== '*' && dayOfMonth !== '?' && 
+      dayOfWeek !== '*' && dayOfWeek !== '?') {
+    return false;
+  }
+  
+  // If both are *, one should be set to ? for AWS EventBridge compatibility
+  // This will be handled server-side in convert_to_eventbridge_format
+  
+  return true;
+}
+
+// Function to handle scheduler type change
+function handleSchedulerTypeChange(selectElement) {
+  const form = selectElement.closest('form');
+  const instanceId = form.action.split('/').pop();
+  const backupFrequencySelect = form.querySelector('select[name="backup_frequency"]');
+  const customBackupFrequency = form.querySelector('input[name="custom_backup_frequency"]');
+  
+  // Get the current frequency value
+  let currentFrequency = backupFrequencySelect.value;
+  if (currentFrequency === 'custom' && customBackupFrequency && customBackupFrequency.value) {
+    currentFrequency = customBackupFrequency.value;
+  }
+  
+  if (selectElement.value === 'eventbridge' && selectElement.dataset.previous === 'python') {
+    // Show popup to confirm cron schedule for EventBridge
+    let cronSchedule = prompt(
+      'Enter cron schedule for EventBridge configuration:\n\n' +
+      'Current schedule: ' + currentFrequency + '\n\n' +
+      'Format: minutes hours day-of-month month day-of-week\n' +
+      'AWS EventBridge Rules:\n' +
+      '- Use ? in either day-of-month OR day-of-week when specifying the other\n' +
+      '- Minutes: 0-59, Hours: 0-23, Day-of-month: 1-31 or ?, Month: 1-12, Day-of-week: 0-7 or ?\n' +
+      'Examples:\n' +
+      '0 2 * * ? (Daily at 2 AM)\n' +
+      '0 12 ? * MON-FRI (Weekdays at noon)\n' +
+      '0 0 1 * ? (1st day of month at midnight)',
+      currentFrequency
+    );
+    
+    if (cronSchedule) {
+      // Validate the cron expression
+      if (!validateCronExpression(cronSchedule)) {
+        alert('Invalid cron expression format for AWS EventBridge.\n\nPlease remember:\n- Use ? in either day-of-month OR day-of-week when specifying the other\n- Format: minutes hours day-of-month month day-of-week');
+        // If validation fails, revert to previous selection
+        selectElement.value = 'python';
+        return false;
+      }
+      
+      // Add hidden input field with the cron schedule
+      let hiddenInput = form.querySelector('input[name="cron_schedule"]');
+      if (!hiddenInput) {
+        hiddenInput = document.createElement('input');
+        hiddenInput.type = 'hidden';
+        hiddenInput.name = 'cron_schedule';
+        form.appendChild(hiddenInput);
+      }
+      hiddenInput.value = cronSchedule;
+    } else {
+      // If user cancels, revert to previous selection
+      selectElement.value = 'python';
+      return false;
+    }
+  } else if (selectElement.value === 'python' && selectElement.dataset.previous === 'eventbridge') {
+    // Remove the hidden cron_schedule input if switching back to Python
+    const hiddenInput = form.querySelector('input[name="cron_schedule"]');
+    if (hiddenInput) {
+      form.removeChild(hiddenInput);
+    }
+  }
+  
+  // Update the previous value
+  selectElement.dataset.previous = selectElement.value;
+  return true;
+}
+
+// Initialize scheduler type selects
+document.addEventListener('DOMContentLoaded', function() {
+  // Initialize scheduler type selects
+  document.querySelectorAll('select[name="scheduler_type"]').forEach(function(select) {
+    // Store initial value
+    select.dataset.previous = select.value;
+    
+    // Add change event listener
+    select.addEventListener('change', function() {
+      handleSchedulerTypeChange(this);
+    });
+  });
+});
+</script>
+
+<style>
+/* These styles will be moved to the main CSS file */
+.hidden {
+  display: none;
+}
+
+.hidden-fields {
+  display: none;
+}
+
+/* Styles for password fields with toggle button */
+.password-field {
+  display: flex;
+  align-items: center;
+  position: relative;
+}
+
+.password-field input {
+  flex: 1;
+  padding-right: 40px;
+}
+
+.toggle-password {
+  position: absolute;
+  right: 0;
+  align-items: center;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--accent-color);
+  padding: 0 10px;
+}
+
+.toggle-password:hover {
+  color: var(--accent-light-color);
+}
+
+/* Styles for credential form */
+.credential-form {
+  border-bottom: 1px solid var(--input-border);
+  padding-bottom: 20px;
+  margin-bottom: 20px;
+}
+
+/* Form grid layout */
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+/* Input with button */
+.input-with-button {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.input-with-button input {
+  flex: 1;
+}
+
+/* Help text */
+.help-text {
+  font-size: 0.85em;
+  color: var(--text-light-color);
+  margin-top: 2px;
+}
+
+/* Checkbox container */
+.checkbox-container {
+  margin-top: 10px;
+}
+
+.checkbox-label {
+  display: inline;
+  margin-left: 5px;
+}
+
+/* Custom input */
+.custom-input {
+  margin-top: 10px;
+}
+</style>
+{% endblock %}
